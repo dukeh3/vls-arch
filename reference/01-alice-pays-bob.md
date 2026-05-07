@@ -36,37 +36,26 @@ sequenceDiagram
     participant Bob
     participant Bitcoin
 
-    Alice->>Bob: open_channel
-    Note right of Alice: chain_hash, funding_satoshis=1.0 BTC<br/>push_msat=0, to_self_delay=10<br/>funding_pubkey: Af<br/>revocation_basepoint: Ar<br/>payment_basepoint: Ap<br/>delayed_payment_basepoint: Ad<br/>htlc_basepoint: Ah<br/>first_per_commitment_point: ap0
-
-    Bob->>Alice: accept_channel
-    Note right of Bob: to_self_delay=10<br/>funding_pubkey: Bf<br/>revocation_basepoint: Br<br/>payment_basepoint: Bp<br/>delayed_payment_basepoint: Bd<br/>htlc_basepoint: Bh<br/>first_per_commitment_point: bp0
+    Alice->>Bob: open_channel(Af, Ar, Ap, Ad, Ah, ap0, 1.0 BTC, to_self_delay=10)
+    Bob->>Alice: accept_channel(Bf, Br, Bp, Bd, Bh, bp0, to_self_delay=10)
 
     Note over Alice: Creates funding tx (unsigned)<br/>1.0 BTC to 2-of-2(Af, Bf)
+    Note over Alice: Builds commitment_B_0<br/>and signs it with Af
 
-    Note over Alice: Builds commitment_B_0<br/>and signs it with her funding key Af
+    Alice->>Bob: funding_created(funding_txid, output_index, sig_Af(commitment_B_0))
 
-    Alice->>Bob: funding_created
-    Note right of Alice: funding_txid, funding_output_index<br/>sig_Af(commitment_B_0)
+    Note over Bob: Builds commitment_A_0<br/>and signs it with Bf
 
-    Note over Bob: Builds commitment_A_0<br/>and signs it with his funding key Bf
+    Bob->>Alice: funding_signed(sig_Bf(commitment_A_0))
 
-    Bob->>Alice: funding_signed
-    Note right of Bob: sig_Bf(commitment_A_0)
-
-    Note over Alice: Has sig_Bf for commitment_A_0<br/>Safe to broadcast funding tx
+    Note over Alice: Has sig_Bf for commitment_A_0 — safe to broadcast
 
     Alice->>Bitcoin: broadcast funding tx
-    Note over Alice, Bitcoin: 1.0 BTC to 2-of-2(Af, Bf)
-
     Bitcoin-->>Alice: confirmed
     Bitcoin-->>Bob: confirmed
 
-    Alice->>Bob: channel_ready
-    Note right of Alice: next_per_commitment_point: ap1
-
-    Bob->>Alice: channel_ready
-    Note right of Bob: next_per_commitment_point: bp1
+    Alice->>Bob: channel_ready(ap1)
+    Bob->>Alice: channel_ready(bp1)
 
     Note over Alice, Bob: Commitment 0 established<br/>Alice: 1.0 BTC | Bob: 0.0 BTC
 ```
@@ -120,20 +109,11 @@ sequenceDiagram
     participant Alice
     participant Bob
 
-    Alice->>Bob: update_add_htlc
-    Note over Alice, Bob: hash=H, amount=0.2 BTC, cltv_expiry=100
-
-    Alice->>Bob: commitment_signed
-    Note over Alice, Bob: sig_Af(commitment_B_1), htlc_sigs
-
-    Bob->>Alice: revoke_and_ack
-    Note over Alice, Bob: per_commitment_secret: bs0<br/>next_per_commitment_point: bp2
-
-    Bob->>Alice: commitment_signed
-    Note over Alice, Bob: sig_Bf(commitment_A_1), htlc_sigs
-
-    Alice->>Bob: revoke_and_ack
-    Note over Alice, Bob: per_commitment_secret: as0<br/>next_per_commitment_point: ap2
+    Alice->>Bob: update_add_htlc(id=0, 0.2 BTC, H, cltv=100)
+    Alice->>Bob: commitment_signed(sig_Af(commitment_B_1), [sig_Af(htlc_success_tx)])
+    Bob->>Alice: revoke_and_ack(bs0, bp2)
+    Bob->>Alice: commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])
+    Alice->>Bob: revoke_and_ack(as0, ap2)
 
     Note over Alice, Bob: Commitment 1 established<br/>Commitment 0 revoked (as0, bs0 revealed)<br/>Alice: 0.8 + 0.2 HTLC | Bob: 0.0
 ```
@@ -186,20 +166,11 @@ sequenceDiagram
     participant Alice
     participant Bob
 
-    Bob->>Alice: update_fulfill_htlc
-    Note over Alice, Bob: hash=H, preimage=P
-
-    Bob->>Alice: commitment_signed
-    Note over Alice, Bob: sig_Bf(commitment_A_2)
-
-    Alice->>Bob: revoke_and_ack
-    Note over Alice, Bob: per_commitment_secret: as1<br/>next_per_commitment_point: ap3
-
-    Alice->>Bob: commitment_signed
-    Note over Alice, Bob: sig_Af(commitment_B_2)
-
-    Bob->>Alice: revoke_and_ack
-    Note over Alice, Bob: per_commitment_secret: bs1<br/>next_per_commitment_point: bp3
+    Bob->>Alice: update_fulfill_htlc(id=0, P)
+    Bob->>Alice: commitment_signed(sig_Bf(commitment_A_2))
+    Alice->>Bob: revoke_and_ack(as1, ap3)
+    Alice->>Bob: commitment_signed(sig_Af(commitment_B_2))
+    Bob->>Alice: revoke_and_ack(bs1, bp3)
 
     Note over Alice, Bob: Commitment 2 established<br/>Commitment 1 revoked (as1, bs1 revealed)<br/>Alice: 0.8 BTC | Bob: 0.2 BTC
 ```
@@ -246,25 +217,12 @@ sequenceDiagram
     participant Bob
     participant Bitcoin
 
-    Alice->>Bob: shutdown
-    Note over Alice, Bob: scriptpubkey_A (Alice's payout address)
-
-    Bob->>Alice: shutdown
-    Note over Alice, Bob: scriptpubkey_B (Bob's payout address)
-
-    Note over Alice, Bob: Fee negotiation begins
-
-    Alice->>Bob: closing_signed
-    Note over Alice, Bob: fee_satoshis, sig_Af(close_tx)
-
-    Bob->>Alice: closing_signed
-    Note over Alice, Bob: fee_satoshis, sig_Bf(close_tx)
-
-    Note over Alice, Bob: Both have sig_Af + sig_Bf for close_tx
+    Alice->>Bob: shutdown(scriptpubkey_A)
+    Bob->>Alice: shutdown(scriptpubkey_B)
+    Alice->>Bob: closing_signed(fee_satoshis, sig_Af(close_tx))
+    Bob->>Alice: closing_signed(fee_satoshis, sig_Bf(close_tx))
 
     Alice->>Bitcoin: broadcast close tx
-    Note over Bitcoin: close_tx spends funding output<br/>Output 0: 0.8 BTC → scriptpubkey_A<br/>Output 1: 0.2 BTC → scriptpubkey_B
-
     Bitcoin-->>Alice: confirmed
     Bitcoin-->>Bob: confirmed
 

@@ -15,6 +15,7 @@ current/            — VLS signer calls as they work TODAY (separate API calls)
 future/             — optimized/batched VLS calls + taproot exploration
   01-alice-pays-bob.md
   taproot-lightning.md          placeholder
+questions.md          — open questions and challenges with the current protocol
 ```
 
 ## Terminology Layers

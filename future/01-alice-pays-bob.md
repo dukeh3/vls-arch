@@ -21,26 +21,22 @@ sequenceDiagram
     Alice->>SignerA: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0)
     SignerA-->>Alice: Af, Ar, Ap, Ad, Ah, ap0
 
-    Alice->>Bob: open_channel
-    Note over Alice, Bob: funding_satoshis=1.0 BTC<br/>Af, Ar, Ap, Ad, Ah, ap0
+    Alice->>Bob: open_channel(Af, Ar, Ap, Ad, Ah, ap0, 1.0 BTC, to_self_delay=10)
 
     Bob->>SignerB: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0)
     SignerB-->>Bob: Bf, Br, Bp, Bd, Bh, bp0
 
-    Bob->>Alice: accept_channel
-    Note over Alice, Bob: Bf, Br, Bp, Bd, Bh, bp0
+    Bob->>Alice: accept_channel(Bf, Br, Bp, Bd, Bh, bp0, to_self_delay=10)
 
     Alice->>SignerA: SetupChannel(is_outbound=true) + SignRemoteCommitmentTx(commitment_B_0)
     SignerA-->>Alice: sig_Af(commitment_B_0)
 
-    Alice->>Bob: funding_created
-    Note over Alice, Bob: funding_txid, funding_output_index<br/>sig_Af(commitment_B_0)
+    Alice->>Bob: funding_created(funding_txid, output_index, sig_Af(commitment_B_0))
 
     Bob->>SignerB: SetupChannel(is_outbound=false) + ValidateCommitmentTx(commitment_B_0, sig_Af) + SignRemoteCommitmentTx(commitment_A_0)
     SignerB-->>Bob: OK, sig_Bf(commitment_A_0)
 
-    Bob->>Alice: funding_signed
-    Note over Alice, Bob: sig_Bf(commitment_A_0)
+    Bob->>Alice: funding_signed(sig_Bf(commitment_A_0))
 
     Alice->>SignerA: ValidateCommitmentTx(commitment_A_0, sig_Bf)
     SignerA-->>Alice: OK
@@ -56,14 +52,12 @@ sequenceDiagram
     Alice->>SignerA: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1)
     SignerA-->>Alice: ap1
 
-    Alice->>Bob: channel_ready
-    Note over Alice, Bob: next_per_commitment_point: ap1
+    Alice->>Bob: channel_ready(ap1)
 
     Bob->>SignerB: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1)
     SignerB-->>Bob: bp1
 
-    Bob->>Alice: channel_ready
-    Note over Alice, Bob: next_per_commitment_point: bp1
+    Bob->>Alice: channel_ready(bp1)
 
     Note over Alice, Bob: Commitment 0 established<br/>Alice: 1.0 BTC | Bob: 0.0 BTC
 ```
@@ -103,13 +97,12 @@ sequenceDiagram
     participant Bob
     participant SignerB as Bob Signer
 
-    Alice->>Bob: update_add_htlc(H, 0.2 BTC, cltv=100)
+    Alice->>Bob: update_add_htlc(id=0, 0.2 BTC, H, cltv=100)
 
     Alice->>SignerA: SignRemoteCommitmentTx(commitment_B_1, htlcs=[offered: H, 0.2, T=100])
     SignerA-->>Alice: sig_Af(commitment_B_1), htlc_sigs
 
-    Alice->>Bob: commitment_signed
-    Note over Alice, Bob: sig_Af(commitment_B_1), htlc_sigs
+    Alice->>Bob: commitment_signed(sig_Af(commitment_B_1), [sig_Af(htlc_success_tx)])
 
     Bob->>SignerB: ValidateCommitmentTx(commitment_B_1, sig_Af)
     SignerB-->>Bob: OK
@@ -117,14 +110,12 @@ sequenceDiagram
     Bob->>SignerB: RevokeCommitmentTx(0)
     SignerB-->>Bob: bs0, bp2
 
-    Bob->>Alice: revoke_and_ack
-    Note over Alice, Bob: bs0, bp2
+    Bob->>Alice: revoke_and_ack(bs0, bp2)
 
     Bob->>SignerB: SignRemoteCommitmentTx(commitment_A_1, htlcs=[offered: H, 0.2, T=100])
     SignerB-->>Bob: sig_Bf(commitment_A_1), htlc_sigs
 
-    Bob->>Alice: commitment_signed
-    Note over Alice, Bob: sig_Bf(commitment_A_1), htlc_sigs
+    Bob->>Alice: commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])
 
     Alice->>SignerA: ValidateRevocation(0, bs0)
     SignerA-->>Alice: OK
@@ -135,8 +126,7 @@ sequenceDiagram
     Alice->>SignerA: RevokeCommitmentTx(0)
     SignerA-->>Alice: as0, ap2
 
-    Alice->>Bob: revoke_and_ack
-    Note over Alice, Bob: as0, ap2
+    Alice->>Bob: revoke_and_ack(as0, ap2)
 
     Note over Alice, Bob: Commitment 1 established<br/>Commitment 0 revoked<br/>Alice: 0.8 + 0.2 HTLC | Bob: 0.0
 ```
@@ -173,13 +163,12 @@ sequenceDiagram
     participant Bob
     participant SignerB as Bob Signer
 
-    Bob->>Alice: update_fulfill_htlc(H, preimage=P)
+    Bob->>Alice: update_fulfill_htlc(id=0, P)
 
     Bob->>SignerB: SignRemoteCommitmentTx(commitment_A_2, htlcs=[])
     SignerB-->>Bob: sig_Bf(commitment_A_2)
 
-    Bob->>Alice: commitment_signed
-    Note over Alice, Bob: sig_Bf(commitment_A_2)
+    Bob->>Alice: commitment_signed(sig_Bf(commitment_A_2))
 
     Alice->>SignerA: ValidateCommitmentTx(commitment_A_2, sig_Bf)
     SignerA-->>Alice: OK
@@ -187,14 +176,12 @@ sequenceDiagram
     Alice->>SignerA: RevokeCommitmentTx(1)
     SignerA-->>Alice: as1, ap3
 
-    Alice->>Bob: revoke_and_ack
-    Note over Alice, Bob: as1, ap3
+    Alice->>Bob: revoke_and_ack(as1, ap3)
 
     Alice->>SignerA: SignRemoteCommitmentTx(commitment_B_2, htlcs=[])
     SignerA-->>Alice: sig_Af(commitment_B_2)
 
-    Alice->>Bob: commitment_signed
-    Note over Alice, Bob: sig_Af(commitment_B_2)
+    Alice->>Bob: commitment_signed(sig_Af(commitment_B_2))
 
     Bob->>SignerB: ValidateRevocation(1, as1)
     SignerB-->>Bob: OK
@@ -205,8 +192,7 @@ sequenceDiagram
     Bob->>SignerB: RevokeCommitmentTx(1)
     SignerB-->>Bob: bs1, bp3
 
-    Bob->>Alice: revoke_and_ack
-    Note over Alice, Bob: bs1, bp3
+    Bob->>Alice: revoke_and_ack(bs1, bp3)
 
     Note over Alice, Bob: Commitment 2 established<br/>Commitment 1 revoked<br/>Alice: 0.8 BTC | Bob: 0.2 BTC
 ```
@@ -244,26 +230,20 @@ sequenceDiagram
     participant SignerB as Bob Signer
     participant Bitcoin
 
-    Alice->>Bob: shutdown
-    Note over Alice, Bob: scriptpubkey_A
-
-    Bob->>Alice: shutdown
-    Note over Alice, Bob: scriptpubkey_B
+    Alice->>Bob: shutdown(scriptpubkey_A)
+    Bob->>Alice: shutdown(scriptpubkey_B)
 
     Alice->>SignerA: SignMutualCloseTx(close_tx)
     SignerA-->>Alice: sig_Af(close_tx)
 
-    Alice->>Bob: closing_signed
-    Note over Alice, Bob: fee_satoshis, sig_Af(close_tx)
+    Alice->>Bob: closing_signed(fee_satoshis, sig_Af(close_tx))
 
     Bob->>SignerB: SignMutualCloseTx(close_tx)
     SignerB-->>Bob: sig_Bf(close_tx)
 
-    Bob->>Alice: closing_signed
-    Note over Alice, Bob: fee_satoshis, sig_Bf(close_tx)
+    Bob->>Alice: closing_signed(fee_satoshis, sig_Bf(close_tx))
 
     Alice->>Bitcoin: broadcast close tx
-    Note over Bitcoin: close_tx spends funding output<br/>0.8 BTC → scriptpubkey_A<br/>0.2 BTC → scriptpubkey_B
 
     Bitcoin-->>Alice: confirmed
     Bitcoin-->>Bob: confirmed
