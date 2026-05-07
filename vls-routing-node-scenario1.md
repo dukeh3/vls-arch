@@ -24,28 +24,19 @@ This document breaks down the complete lifecycle of a VLS-backed routing node: o
 
 A routing node sits between two or more peers, forwarding payments across channels. The VLS signer holds all private keys and validates every operation.
 
-```
-                        Lightning Network
-                              │
-          ┌───────────────────┼───────────────────┐
-          │                   │                   │
-     ┌────┴────┐         ┌───┴───┐          ┌────┴────┐
-     │  Alice  │◄───CH1──►│ OUR   │◄───CH2───►│   Bob   │
-     │ (peer)  │         │ NODE  │          │ (peer)  │
-     └─────────┘         └───┬───┘          └─────────┘
-                             │
-                     ┌───────┴───────┐
-                     │  VLS SIGNER   │
-                     │               │
-                     │ ┌───────────┐ │
-                     │ │ Channel 1 │ │  (Alice channel state)
-                     │ │ Channel 2 │ │  (Bob channel state)
-                     │ │ NodeState │ │  (cross-channel payment tracking)
-                     │ └───────────┘ │
-                     │               │
-                     │  Private Keys │
-                     │  Policy Engine│
-                     └───────────────┘
+```mermaid
+graph TB
+    Alice["Alice (peer)"] ---|CH1| Node["OUR NODE"]
+    Node ---|CH2| Bob["Bob (peer)"]
+    Node ---|VLS Protocol| NS
+
+    subgraph VLS SIGNER
+        CH1S["Channel 1 — Alice channel state"]
+        CH2S["Channel 2 — Bob channel state"]
+        NS["NodeState — cross-channel payment tracking"]
+        Keys["Private Keys"]
+        Policy["Policy Engine"]
+    end
 ```
 
 **Key property:** The signer manages ALL channels under a single `NodeState`. This is what enables cross-channel HTLC correlation — the signer sees both the incoming HTLC (from Alice) and the outgoing HTLC (to Bob) and validates that the balance is correct.
@@ -123,30 +114,18 @@ The `payment_hash` is the critical correlation key — the same hash appears on 
 
 The routing node starts up and initializes its VLS session.
 
-```
-Node                                    Signer
- │                                        │
- │── HsmdInit(                           │
- │     chain_params=mainnet,             │
- │     hsm_wire_min_version=2,           │
- │     hsm_wire_max_version=6)       ──►│
- │                                        │
- │                                        │  Signer initializes:
- │                                        │  - Loads/generates node key
- │                                        │  - Creates NodeState
- │                                        │  - Initializes empty payments map
- │                                        │  - Sets excess_amount = 0
- │                                        │  - Negotiates protocol version
- │                                        │
- │◄── HsmdInitReplyV4(                  │
- │     hsm_version=6,                    │
- │     hsm_capabilities=[...],           │
- │     node_id=03abc...,                 │
- │     bip32=xpub...,                    │
- │     bolt12=02def...)              ────│
- │                                        │
- │  Node now knows its identity and       │
- │  can begin opening channels            │
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+
+    Node->>Signer: HsmdInit(chain_params=mainnet, versions 2..6)
+
+    Note over Signer: Loads/generates node key<br/>Creates NodeState<br/>Initializes empty payments map<br/>Sets excess_amount = 0<br/>Negotiates protocol version
+
+    Signer-->>Node: HsmdInitReplyV4(hsm_version=6,<br/>node_id=03abc..., bip32=xpub..., bolt12=02def...)
+
+    Note over Node: Node now knows its identity<br/>and can begin opening channels
 ```
 
 ---
@@ -155,69 +134,131 @@ Node                                    Signer
 
 The routing node needs at least two channels. Let's open one to Alice and one to Bob.
 
-### Channel 1: Alice ↔ Us (1,000,000 sat, we fund)
+### Channel 1: Alice ↔ Us (1,000,000 sat, Alice funds)
 
-```
-Node                                    Signer
- │                                        │
- │── NewChannel(alice_id, dbid=1) ──────►│  Register channel
- │◄── NewChannelReply ──────────────────│
- │                                        │
- │── GetChannelBasepoints(alice_id, 1) ─►│  Get our keys for this channel
- │◄── (basepoints, funding_pubkey) ────│
- │                                        │
- │── GetPerCommitmentPoint(0) ─────────►│  First commitment point
- │◄── (point_0) ───────────────────────│
- │                                        │
- │  ... negotiate with Alice ...          │
- │                                        │
- │── SetupChannel(                       │
- │     is_outbound=true,                 │  We funded this channel
- │     channel_value=1,000,000,          │
- │     push_value=0,                     │
- │     funding_txid=aaa...,              │
- │     funding_txout=0,                  │
- │     to_self_delay=144,               │
- │     remote_basepoints=alice_bp,       │
- │     remote_funding_pubkey=alice_fp,   │
- │     remote_to_self_delay=144,         │
- │     channel_type=anchors_zero_fee) ►│
- │                                        │
- │                                        │  Signer validates:
- │                                        │  ✅ contest delay in range [144, 2016]
- │                                        │  ✅ channel type is safe (AnchorsZeroFeeHtlc)
- │                                        │  ✅ no channel push
- │                                        │
- │◄── SetupChannelReply ───────────────│
- │                                        │
- │── SignRemoteCommitmentTx(0, ...) ───►│  Sign Alice's initial commitment
- │◄── SignTxReply(sig) ────────────────│  ✅ No HTLCs, correct structure
- │                                        │
- │── ValidateCommitmentTx(0, alice_sig) ►│ Validate our initial commitment
- │◄── ValidateCommitmentTxReply ───────│  ✅ funding value matches,
- │                                        │     no HTLCs, sig valid
- │                                        │
- │── SignWithdrawal(utxos, psbt) ──────►│  Sign funding transaction
- │◄── SignWithdrawalReply(signed) ─────│  ✅ SegWit inputs, outputs known,
- │                                        │     fee in range, commitment
- │                                        │     countersigned
- │  ... funding confirms ...              │
- │                                        │
- │── CheckOutpoint + LockOutpoint ─────►│  Confirm and lock funding
- │◄── (is_buried=true) ───────────────│
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant Node
+    participant Signer
+    participant Bitcoin
+
+    Alice->>Node: open_channel(funding=1,000,000 sat)
+
+    rect rgb(240, 248, 255)
+        Note right of Node: Channel Setup
+        Node->>Signer: NewChannel(alice_id, dbid=1)
+        Signer-->>Node: NewChannelReply
+        Node->>Signer: GetChannelBasepoints(alice_id, 1)
+        Signer-->>Node: basepoints, funding_pubkey
+        Node->>Signer: GetPerCommitmentPoint(0)
+        Signer-->>Node: point_0
+    end
+
+    Node->>Alice: accept_channel
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: SetupChannel(is_outbound=false, value=1,000,000, push=0, type=anchors_zero_fee)
+        Note over Signer: Validates:<br/>✅ contest delay in range [144, 2016]<br/>✅ channel type safe (AnchorsZeroFeeHtlc)<br/>✅ no channel push
+        Signer-->>Node: SetupChannelReply
+    end
+
+    Alice->>Node: funding_created(funding_txid, sig)
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: ValidateCommitmentTx(0, alice_sig)
+        Note over Signer: ✅ funding value matches, no HTLCs, sig valid
+        Signer-->>Node: ValidateCommitmentTxReply
+        Node->>Signer: SignRemoteCommitmentTx(0)
+        Note over Signer: ✅ No HTLCs, correct structure
+        Signer-->>Node: SignTxReply(sig)
+    end
+
+    Node->>Alice: funding_signed(sig)
+    Alice->>Bitcoin: broadcast funding tx
+    Bitcoin-->>Node: funding tx confirmed
+    Bitcoin-->>Alice: funding tx confirmed
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: CheckOutpoint + LockOutpoint
+        Signer-->>Node: is_buried=true
+    end
+
+    Alice->>Node: channel_ready
+    Node->>Alice: channel_ready
 ```
 
 ### Channel 2: Bob ↔ Us (1,000,000 sat, we fund)
 
-Same flow as Channel 1, with `dbid=2` and Bob's parameters.
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+    participant Bob
+    participant Bitcoin
+
+    rect rgb(240, 248, 255)
+        Note right of Node: Channel Setup
+        Node->>Signer: NewChannel(bob_id, dbid=2)
+        Signer-->>Node: NewChannelReply
+        Node->>Signer: GetChannelBasepoints(bob_id, 2)
+        Signer-->>Node: basepoints, funding_pubkey
+        Node->>Signer: GetPerCommitmentPoint(0)
+        Signer-->>Node: point_0
+    end
+
+    Node->>Bob: open_channel(funding=1,000,000 sat)
+    Bob->>Node: accept_channel
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: SetupChannel(is_outbound=true, value=1,000,000, push=0, type=anchors_zero_fee)
+        Note over Signer: Validates:<br/>✅ contest delay in range [144, 2016]<br/>✅ channel type safe (AnchorsZeroFeeHtlc)<br/>✅ no channel push
+        Signer-->>Node: SetupChannelReply
+    end
+
+    Note over Node: Create funding tx (unsigned)
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: SignRemoteCommitmentTx(0)
+        Note over Signer: ✅ No HTLCs, correct structure
+        Signer-->>Node: SignTxReply(sig)
+    end
+
+    Node->>Bob: funding_created(funding_txid, sig)
+    Bob->>Node: funding_signed(sig)
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: ValidateCommitmentTx(0, bob_sig)
+        Note over Signer: ✅ funding value matches, no HTLCs, sig valid
+        Signer-->>Node: ValidateCommitmentTxReply
+    end
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: SignWithdrawal(funding_tx)
+        Note over Signer: ✅ Signs our funding tx inputs
+        Signer-->>Node: SignTxReply(sig)
+    end
+
+    Node->>Bitcoin: broadcast funding tx
+    Bitcoin-->>Node: funding tx confirmed
+    Bitcoin-->>Bob: funding tx confirmed
+
+    rect rgb(240, 248, 255)
+        Node->>Signer: CheckOutpoint + LockOutpoint
+        Signer-->>Node: is_buried=true
+    end
+
+    Node->>Bob: channel_ready
+    Bob->>Node: channel_ready
+```
 
 After both channels are open:
 
 ```
 Signer State:
 ├── channels:
-│   ├── CH1 (Alice): value=1,000,000, our_balance=1,000,000, their_balance=0
-│   └── CH2 (Bob):   value=1,000,000, our_balance=1,000,000, their_balance=0
+│   ├── CH1 (Alice): value=1,000,000, our_balance=0, alice_balance=1,000,000
+│   └── CH2 (Bob):   value=1,000,000, our_balance=1,000,000, bob_balance=0
 ├── payments: {} (empty)
 └── excess_amount: 0
 ```
@@ -232,183 +273,110 @@ Alice wants to pay Bob 100,000 sat through our routing node. She sends an HTLC t
 
 Alice proposes a new commitment on Channel 1 that includes an HTLC she's offering to us.
 
-```
-Alice ──update_add_htlc(hash=H, amount=100,100 sat, cltv=800,034)──► Our Node
-
-Alice ──commitment_signed(commitment_1, sig, htlc_sigs)──► Our Node
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant Node
+    Alice->>Node: update_add_htlc(hash=H, amount=100,100 sat, cltv=800,034)
+    Alice->>Node: commitment_signed(commitment_1, sig, htlc_sigs)
 ```
 
 The amount is 100,100 sat because Alice includes a routing fee (100 sat).
 
 Our node passes Alice's commitment_signed to the signer:
 
-```
-Node                                    Signer
- │                                        │
- │  Received commitment_signed from Alice │
- │  for Channel 1, commitment #1         │
- │  Contains: offered HTLC (hash=H,      │
- │            amount=100,100 sat,         │
- │            cltv_expiry=800,034)        │
- │                                        │
- │── ValidateCommitmentTx(              │
- │     CH1,                              │
- │     commitment_number=1,              │
- │     feerate=2500,                     │
- │     htlcs=[                           │
- │       { side=remote,                  │  "remote" = Alice offered to us
- │         amount=100,100 sat,           │  = our INCOMING
- │         payment_hash=H,              │
- │         cltv_expiry=800,034 }        │
- │     ],                                │
- │     signature=alice_sig,              │
- │     htlc_signatures=[alice_htlc_sig]) │
- │                                    ──►│
- │                                        │
- │                                        │  Signer processes:
- │                                        │
- │                                        │  1. Parse commitment info:
- │                                        │     received_htlcs = [{H, 100,100, 800,034}]
- │                                        │     (Alice offered → we received)
- │                                        │
- │                                        │  2. Update NodeState.payments:
- │                                        │     payments[H] = RoutedPayment {
- │                                        │       incoming: {CH1: 100,100 sat}
- │                                        │       outgoing: {}
- │                                        │       incoming_cltv_min: 800,034
- │                                        │     }
- │                                        │
- │                                        │  3. Validate payment balance:
- │                                        │     incoming=100,100, outgoing=0
- │                                        │     100,100 + 0 >= 0 ✅ (no outgoing yet)
- │                                        │
- │                                        │  4. Validate commitment structure:
- │                                        │     ✅ fee range OK
- │                                        │     ✅ HTLC count within limit
- │                                        │     ✅ HTLC inflight within limit
- │                                        │     ✅ previous commitment revoked
- │                                        │     ✅ Alice's signature valid
- │                                        │
- │                                        │  5. Update balance delta:
- │                                        │     old_balance = 1,000,000
- │                                        │     new_balance = 899,900 (value to us)
- │                                        │     (100,100 now in HTLC output)
- │                                        │
- │◄── ValidateCommitmentTxReply(        │
- │     next_point=point_2)           ────│
- │                                        │
- │── RevokeCommitmentTx(0) ───────────►│  Revoke our old commitment #0
- │◄── RevokeCommitmentTxReply(         │
- │     secret_0, next_point)         ────│
- │                                        │
- │  ── send revoke_and_ack to Alice ──►  │
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant Node
+    participant Signer
+
+    Note over Node: Received commitment_signed from Alice<br/>CH1 commitment #1<br/>Contains: offered HTLC (H, 100,100 sat, cltv=800,034)
+
+    Node->>Signer: ValidateCommitmentTx(CH1, #1, feerate=2500,<br/>htlcs=[{remote, 100,100, H, 800,034}], alice_sig)
+    activate Signer
+
+    Note over Signer: 1. Parse: received_htlcs=[{H, 100,100, 800,034}]<br/>(Alice offered → we received)<br/><br/>2. payments[H] = {incoming:{CH1: 100,100}, outgoing:{}}<br/><br/>3. Balance: 100,100 >= 0 ✅ (no outgoing yet)<br/><br/>4. ✅ fee range, HTLC count, sig valid<br/><br/>5. Balance delta: our_balance 0 → 0<br/>(HTLC comes from Alice's balance, ours unchanged)
+
+    Signer-->>Node: ValidateCommitmentTxReply(next_point=point_2)
+    deactivate Signer
+
+    Node->>Signer: RevokeCommitmentTx(0)
+    Signer-->>Node: RevokeCommitmentTxReply(secret_0, next_point)
+
+    Node->>Alice: revoke_and_ack
 ```
 
 ### 3.2 — We Forward HTLC to Bob (Outgoing)
 
 Now we forward the HTLC to Bob on Channel 2. We subtract our routing fee and reduce the CLTV.
 
-```
-Our Node ──update_add_htlc(hash=H, amount=100,000 sat, cltv=800,000)──► Bob
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Bob
+    Node->>Bob: update_add_htlc(hash=H, amount=100,000 sat, cltv=800,000)
 ```
 
 Note: amount reduced by 100 sat (routing fee), CLTV reduced by 34 blocks (min delta).
 
 We sign Bob's new commitment (with the HTLC):
 
-```
-Node                                    Signer
- │                                        │
- │  Forward HTLC to Bob on Channel 2     │
- │  Sign Bob's commitment #1 with HTLC   │
- │                                        │
- │── SignRemoteCommitmentTx(            │
- │     CH2,                              │
- │     commitment_number=1,              │
- │     feerate=2500,                     │
- │     htlcs=[                           │
- │       { side=local,                   │  "local" = we offered to Bob
- │         amount=100,000 sat,           │  = our OUTGOING
- │         payment_hash=H,              │
- │         cltv_expiry=800,000 }        │
- │     ])                            ──►│
- │                                        │
- │                                        │  Signer processes:
- │                                        │
- │                                        │  1. Parse commitment info:
- │                                        │     This is Bob's commitment where:
- │                                        │     received_htlcs = [{H, 100,000, 800,000}]
- │                                        │     (We offered → Bob receives = our OUTGOING)
- │                                        │
- │                                        │  2. Update NodeState.payments:
- │                                        │     payments[H] = RoutedPayment {
- │                                        │       incoming: {CH1: 100,100 sat}
- │                                        │       outgoing: {CH2: 100,000 sat}
- │                                        │       incoming_cltv_min: 800,034
- │                                        │       outgoing_cltv_max: 800,000
- │                                        │     }
- │                                        │
- │                                        │  3. Validate payment balance:
- │                                        │     incoming = 100,100 sat (from CH1)
- │                                        │     outgoing = 100,000 sat (to CH2)
- │                                        │     100,100 >= 100,000 ✅
- │                                        │     (routing fee = 100 sat retained)
- │                                        │
- │                                        │  4. Validate CLTV delta:
- │                                        │     incoming_cltv = 800,034
- │                                        │     outgoing_cltv = 800,000
- │                                        │     delta = 34 >= min(34) ✅
- │                                        │
- │                                        │  5. Validate commitment structure:
- │                                        │     ✅ All standard commitment checks
- │                                        │
- │◄── SignTxReply(sig) ────────────────│
- │                                        │
- │  ── send commitment_signed to Bob ──►  │
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+    participant Bob
+
+    Note over Node: Forward HTLC to Bob on CH2<br/>Sign Bob's commitment #1 with HTLC
+
+    Node->>Signer: SignRemoteCommitmentTx(CH2, #1, feerate=2500,<br/>htlcs=[{local, 100,000, H, 800,000}])
+    activate Signer
+
+    Note over Signer: 1. Parse: Bob's received_htlcs=[{H, 100,000, 800,000}]<br/>(We offered → Bob receives = our OUTGOING)<br/><br/>2. payments[H] = {<br/>  incoming:{CH1: 100,100}, outgoing:{CH2: 100,000},<br/>  in_cltv: 800,034, out_cltv: 800,000<br/>}<br/><br/>3. Balance: 100,100 >= 100,000 ✅ (fee=100 sat)<br/><br/>4. CLTV delta: 800,034 − 800,000 = 34 >= 34 ✅<br/><br/>5. ✅ All standard commitment checks
+
+    Signer-->>Node: SignTxReply(sig)
+    deactivate Signer
+
+    Node->>Bob: commitment_signed
 ```
 
 ### 3.3 — Bob Revokes Old Commitment
 
-```
-Node                                    Signer
- │                                        │
- │  ◄── receive revoke_and_ack from Bob   │
- │                                        │
- │── ValidateRevocation(CH2, 0, secret) ►│  Bob revoked commitment #0
- │◄── ValidateRevocationReply ─────────│  ✅ Secret valid
+```mermaid
+sequenceDiagram
+    participant Bob
+    participant Node
+    participant Signer
+
+    Bob->>Node: revoke_and_ack
+
+    Node->>Signer: ValidateRevocation(CH2, 0, secret)
+    Note over Signer: ✅ Secret valid — Bob revoked commitment #0
+    Signer-->>Node: ValidateRevocationReply
 ```
 
 ### 3.4 — Bob Sends Us New Commitment (Acknowledging Our HTLC)
 
-```
-Node                                    Signer
- │                                        │
- │  ◄── commitment_signed from Bob       │
- │  (our commitment #1 on CH2 now        │
- │   has the offered HTLC)               │
- │                                        │
- │── ValidateCommitmentTx(              │
- │     CH2,                              │
- │     commitment_number=1,              │
- │     htlcs=[                           │
- │       { side=local,                   │  We offered to Bob
- │         amount=100,000 sat,           │
- │         payment_hash=H,              │
- │         cltv_expiry=800,000 }        │
- │     ],                                │
- │     signature=bob_sig,                │
- │     htlc_signatures=[bob_htlc_sig]) ►│
- │                                        │
- │                                        │  ✅ Matches what we already signed
- │                                        │     for Bob's commitment
- │                                        │  ✅ Balance checks pass
- │                                        │
- │◄── ValidateCommitmentTxReply ───────│
- │                                        │
- │── RevokeCommitmentTx(CH2, 0) ──────►│  Revoke our old CH2 commitment
- │◄── RevokeCommitmentTxReply ─────────│
- │                                        │
- │  ── send revoke_and_ack to Bob ──►    │
+```mermaid
+sequenceDiagram
+    participant Bob
+    participant Node
+    participant Signer
+
+    Bob->>Node: commitment_signed
+    Note over Node: Our commitment #1 on CH2<br/>now has the offered HTLC
+
+    Node->>Signer: ValidateCommitmentTx(CH2, #1,<br/>htlcs=[{local, 100,000 sat, H, 800,000}], bob_sig)
+    activate Signer
+    Note over Signer: ✅ Matches what we signed for Bob's commitment<br/>✅ Balance checks pass
+    Signer-->>Node: ValidateCommitmentTxReply
+    deactivate Signer
+
+    Node->>Signer: RevokeCommitmentTx(CH2, 0)
+    Signer-->>Node: RevokeCommitmentTxReply
+
+    Node->>Bob: revoke_and_ack
 ```
 
 ### State After Phase 3
@@ -416,8 +384,8 @@ Node                                    Signer
 ```
 Signer State:
 ├── channels:
-│   ├── CH1 (Alice): our_balance=899,900, HTLC_incoming=100,100
-│   └── CH2 (Bob):   our_balance=900,000, HTLC_outgoing=100,000
+│   ├── CH1 (Alice): our_balance=0, alice_balance=899,900, HTLC_incoming=100,100
+│   └── CH2 (Bob):   our_balance=900,000, bob_balance=0, HTLC_outgoing=100,000
 ├── payments:
 │   └── H: { incoming:{CH1: 100,100}, outgoing:{CH2: 100,000},
 │            in_cltv: 800,034, out_cltv: 800,000 }
@@ -432,128 +400,90 @@ Bob receives the preimage from the final recipient (or Bob IS the final recipien
 
 ### 4.1 — Bob Fulfills HTLC (Sends Preimage)
 
-```
-Bob ──update_fulfill_htlc(hash=H, preimage=P)──► Our Node
-Bob ──commitment_signed(commitment_2)──► Our Node
+```mermaid
+sequenceDiagram
+    participant Bob
+    participant Node
+    Bob->>Node: update_fulfill_htlc(hash=H, preimage=P)
+    Bob->>Node: commitment_signed(commitment_2)
 ```
 
 Bob's new commitment #2 removes the HTLC and gives Bob the 100,000 sat:
 
-```
-Node                                    Signer
- │                                        │
- │  Bob fulfilled HTLC H with preimage P │
- │  Bob's new commitment removes HTLC    │
- │  and adds 100,000 to Bob's balance    │
- │                                        │
- │── ValidateCommitmentTx(              │
- │     CH2,                              │
- │     commitment_number=2,              │
- │     feerate=2500,                     │
- │     htlcs=[],                         │  HTLC removed (settled)
- │     to_local=900,000 sat,            │  Our balance stays same
- │     to_remote=100,000 sat,           │  Bob gained HTLC amount
- │     signature=bob_sig)            ──►│
- │                                        │
- │                                        │  Signer processes:
- │                                        │
- │                                        │  1. HTLC removed from CH2:
- │                                        │     payments[H].outgoing = {CH2: 0}
- │                                        │     (outgoing cleared for this channel)
- │                                        │
- │                                        │  2. Balance delta:
- │                                        │     old: 900,000 (to_local in #1)
- │                                        │     new: 900,000 (to_local in #2)
- │                                        │     No change to our direct balance —
- │                                        │     the 100,000 came from the HTLC output
- │                                        │
- │                                        │  3. Validate structure: ✅
- │                                        │
- │◄── ValidateCommitmentTxReply ───────│
- │                                        │
- │── RevokeCommitmentTx(CH2, 1) ──────►│
- │◄── RevokeCommitmentTxReply ─────────│
+```mermaid
+sequenceDiagram
+    participant Bob
+    participant Node
+    participant Signer
+
+    Note over Node: Bob fulfilled HTLC H with preimage P<br/>Bob's new commitment removes HTLC<br/>and adds 100,000 to Bob's balance
+
+    Node->>Signer: ValidateCommitmentTx(CH2, #2, feerate=2500,<br/>htlcs=[], to_local=900,000, to_remote=100,000, bob_sig)
+    activate Signer
+
+    Note over Signer: 1. HTLC removed from CH2:<br/>payments[H].outgoing cleared<br/><br/>2. Balance delta: 900,000 → 900,000<br/>No change — 100,000 came from HTLC output<br/><br/>3. ✅ Structure valid
+
+    Signer-->>Node: ValidateCommitmentTxReply
+    deactivate Signer
+
+    Node->>Signer: RevokeCommitmentTx(CH2, 1)
+    Signer-->>Node: RevokeCommitmentTxReply
 ```
 
 ### 4.2 — We Fulfill HTLC to Alice
 
 We now send the preimage back to Alice and remove the incoming HTLC:
 
-```
-Our Node ──update_fulfill_htlc(hash=H, preimage=P)──► Alice
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Alice
+    Node->>Alice: update_fulfill_htlc(hash=H, preimage=P)
 ```
 
 Sign Alice's new commitment (HTLC removed, our balance increased by 100,100):
 
-```
-Node                                    Signer
- │                                        │
- │── SignRemoteCommitmentTx(            │
- │     CH1,                              │
- │     commitment_number=2,              │
- │     htlcs=[],                         │  HTLC removed
- │     to_local=100,100 sat,            │  Alice's balance (she paid)
- │     to_remote=899,900 sat)        ──►│  Our balance (unchanged)
- │                                        │
- │                                        │  Wait — where's the routing fee?
- │                                        │
- │                                        │  Alice paid: 100,100 to HTLC
- │                                        │  Bob received: 100,000
- │                                        │  Difference: 100 sat = routing fee
- │                                        │
- │                                        │  The fee shows up in our balance
- │                                        │  on the NEXT commitment where the
- │                                        │  HTLC is removed:
- │                                        │  old our_balance: 899,900
- │                                        │  new our_balance: 899,900 + ???
- │                                        │
- │                                        │  Actually: the HTLC of 100,100 was
- │                                        │  an output. When removed, 100,100
- │                                        │  is redistributed:
- │                                        │  - 0 to Alice (she paid it)
- │                                        │  - 100,100 to us (we fulfilled it)
- │                                        │  Our new balance: 899,900 + 100,100
- │                                        │                 = 1,000,000
- │                                        │
- │                                        │  But we forwarded 100,000 to Bob.
- │                                        │  Net gain = 100,100 - 100,000 = 100 sat
- │                                        │
- │                                        │  Balance delta tracked:
- │                                        │  excess_amount += 100 sat (fee earned)
- │                                        │
- │◄── SignTxReply(sig) ────────────────│  ✅ All checks pass
- │                                        │
- │  ── send commitment_signed to Alice ►  │
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+    participant Alice
+
+    Node->>Signer: SignRemoteCommitmentTx(CH1, #2,<br/>htlcs=[], to_local=899,900, to_remote=100,100)
+    activate Signer
+
+    Note over Signer: HTLC fulfilled — redistributing 100,100:<br/>Alice's balance: 899,900 (unchanged)<br/>Our balance: 0 → 100,100 (we claimed the HTLC)<br/><br/>Routing fee: 100,100 received − 100,000 forwarded = 100 sat<br/>excess_amount += 100 sat (fee earned)
+
+    Signer-->>Node: SignTxReply(sig)
+    deactivate Signer
+
+    Node->>Alice: commitment_signed
 ```
 
 ### 4.3 — Alice Revokes, We Validate Our New Commitment
 
-```
-Node                                    Signer
- │                                        │
- │  ◄── revoke_and_ack from Alice        │
- │── ValidateRevocation(CH1, 0, secret) ►│  ✅
- │                                        │
- │  ◄── commitment_signed from Alice     │
- │  (our CH1 commitment #2, HTLC gone)  │
- │                                        │
- │── ValidateCommitmentTx(              │
- │     CH1,                              │
- │     commitment_number=2,              │
- │     htlcs=[],                         │
- │     to_local=1,000,000 sat,          │  We got the 100,100 back
- │     signature=alice_sig)          ──►│  (we claimed the HTLC)
- │                                        │
- │                                        │  Signer validates:
- │                                        │  ✅ Payment H fully settled
- │                                        │  ✅ Balance delta: +100,100
- │                                        │     (HTLC value returned to us)
- │                                        │  ✅ excess_amount increases by fee
- │                                        │
- │◄── ValidateCommitmentTxReply ───────│
- │                                        │
- │── RevokeCommitmentTx(CH1, 1) ──────►│
- │◄── RevokeCommitmentTxReply ─────────│
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant Node
+    participant Signer
+
+    Alice->>Node: revoke_and_ack
+    Node->>Signer: ValidateRevocation(CH1, 0, secret)
+    Note over Signer: ✅ Secret valid
+    Signer-->>Node: ValidateRevocationReply
+
+    Alice->>Node: commitment_signed
+    Note over Node: Our CH1 commitment #2, HTLC gone
+
+    Node->>Signer: ValidateCommitmentTx(CH1, #2,<br/>htlcs=[], to_local=100,100, alice_sig)
+    activate Signer
+    Note over Signer: ✅ Payment H fully settled<br/>✅ Balance delta: 0 → 100,100 (+100,100)<br/>(HTLC value claimed by us)<br/>✅ excess_amount increases by fee
+    Signer-->>Node: ValidateCommitmentTxReply
+    deactivate Signer
+
+    Node->>Signer: RevokeCommitmentTx(CH1, 1)
+    Signer-->>Node: RevokeCommitmentTxReply
 ```
 
 ### State After Phase 4
@@ -561,31 +491,14 @@ Node                                    Signer
 ```
 Signer State:
 ├── channels:
-│   ├── CH1 (Alice): our_balance=1,000,000, their_balance=0
-│   │                (actually: our=1,000,000 - fee_reserve, since we gained routing fee
-│   │                 net: we now have 100 sat more than if no routing happened...
-│   │                 Wait: let's recalculate)
-│   │
-│   │   Actually correct balances after settlement:
-│   │   CH1: Alice paid 100,100 total (she had 0 initially - this only works
-│   │        if Alice had inbound liquidity. Let me correct the scenario.)
-│   │
-│   └── [See corrected balance calculation below]
-│
+│   ├── CH1 (Alice): our_balance=100,100, alice_balance=899,900
+│   └── CH2 (Bob):   our_balance=900,000, bob_balance=100,000
 ├── payments:
 │   └── H: settled (preimage known, incoming=outgoing=0)
-│
 └── excess_amount: 100 sat (routing fee earned!)
 ```
 
-### Corrected Balance Calculation
-
-Let's be precise. Initially both channels are funded by us:
-- CH1: our_balance=1,000,000, alice_balance=0
-
-For Alice to send us an HTLC, Alice needs balance. Let's adjust the scenario:
-
-**Realistic setup:** Alice funded CH1 (she has 1,000,000), we funded CH2 (we have 1,000,000).
+### Balance Summary
 
 | | CH1 (Alice funded) | CH2 (We funded) |
 |---|---|---|
@@ -648,36 +561,33 @@ After routing for some time, we close channels cooperatively.
 
 ### Close Channel 2 (Bob)
 
-```
-Node                                    Signer
- │                                        │
- │  Negotiate close with Bob             │
- │  Our balance on CH2: 850,000 sat      │
- │  Bob's balance: 150,000 sat           │
- │                                        │
- │── SignMutualCloseTx(                  │
- │     CH2,                              │
- │     close_tx={                        │
- │       output[0]: us, 849,800 sat      │  (minus close fee)
- │       output[1]: bob, 149,900 sat     │
- │     })                            ──►│
- │                                        │
- │                                        │  Signer validates:
- │                                        │  ✅ policy-mutual-destination-allowlisted
- │                                        │     Our output goes to our wallet
- │                                        │  ✅ policy-mutual-value-matches-commitment
- │                                        │     Values match latest commitment balance
- │                                        │  ✅ policy-mutual-fee-range
- │                                        │     Close fee is reasonable
- │                                        │  ✅ policy-mutual-no-pending-htlcs
- │                                        │     No unresolved HTLCs
- │                                        │
- │◄── SignTxReply(sig) ────────────────│
- │                                        │
- │  ── broadcast close tx ──►            │
- │                                        │
- │── ForgetChannel(bob_id, 2) ─────────►│  Remove from signer state
- │◄── ForgetChannelReply ──────────────│
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+    participant Bob
+    participant Bitcoin
+
+    Note over Node, Bob: Negotiate close<br/>Our balance: 850,000 sat | Bob: 150,000 sat
+
+    Node->>Bob: shutdown
+    Bob->>Node: shutdown
+
+    Node->>Signer: SignMutualCloseTx(CH2,<br/>output[0]: us=849,800, output[1]: bob=149,900)
+    activate Signer
+
+    Note over Signer: ✅ policy-mutual-destination-allowlisted<br/>(our output goes to our wallet)<br/>✅ policy-mutual-value-matches-commitment<br/>✅ policy-mutual-fee-range<br/>✅ policy-mutual-no-pending-htlcs
+
+    Signer-->>Node: SignTxReply(sig)
+    deactivate Signer
+
+    Node->>Bob: closing_signed(sig)
+    Bob->>Node: closing_signed(sig)
+    Node->>Bitcoin: broadcast close tx
+    Bitcoin-->>Node: close tx confirmed
+
+    Node->>Signer: ForgetChannel(bob_id, 2)
+    Signer-->>Node: ForgetChannelReply
 ```
 
 ---
@@ -688,54 +598,21 @@ Node                                    Signer
 
 Every time a commitment is signed or validated, the signer runs this logic:
 
-```
-┌─────────────────────────────────────────────────────────┐
-│  validate_payments(channel_id, incoming, outgoing,       │
-│                    balance_delta, validator)              │
-├─────────────────────────────────────────────────────────┤
-│                                                          │
-│  For each PaymentHash in (incoming ∪ outgoing):          │
-│                                                          │
-│  1. Look up global RoutedPayment for this hash          │
-│                                                          │
-│  2. Get total incoming across ALL channels:              │
-│     total_in = Σ (payments[H].incoming[ch])             │
-│     (with this channel's new value substituted)         │
-│                                                          │
-│  3. Get total outgoing across ALL channels:              │
-│     total_out = Σ (payments[H].outgoing[ch])            │
-│     (with this channel's new value substituted)         │
-│                                                          │
-│  4. Get invoice amount if this is our own payment:       │
-│     invoiced = invoices[H].amount_msat or None          │
-│                                                          │
-│  5. validate_payment_balance:                            │
-│     ┌────────────────────────────────────────────┐      │
-│     │ IF invoiced:                                │      │
-│     │   max_to_invoice = invoiced + max_fee       │      │
-│     │ ELSE:                                       │      │
-│     │   max_to_invoice = 0                        │      │
-│     │                                             │      │
-│     │ CHECK: total_in + max_to_invoice >= total_out│     │
-│     │        OTHERWISE → REJECT                   │      │
-│     └────────────────────────────────────────────┘      │
-│                                                          │
-│  6. validate_payment_cltv (if both bounds known):        │
-│     ┌────────────────────────────────────────────┐      │
-│     │ CHECK: incoming_cltv > outgoing_cltv        │      │
-│     │ CHECK: incoming_cltv - outgoing_cltv >= 34  │      │
-│     │        OTHERWISE → REJECT                   │      │
-│     └────────────────────────────────────────────┘      │
-│                                                          │
-│  7. validate balance delta (enforce_balance):            │
-│     ┌────────────────────────────────────────────┐      │
-│     │ excess_amount += new_balance                 │      │
-│     │ excess_amount -= old_balance                 │      │
-│     │ CHECK: excess_amount >= 0                    │      │
-│     │        OTHERWISE → REJECT                   │      │
-│     └────────────────────────────────────────────┘      │
-│                                                          │
-└─────────────────────────────────────────────────────────┘
+```mermaid
+flowchart TD
+    Start["validate_payments(channel_id, incoming, outgoing, balance_delta, validator)"]
+    Start --> Loop["For each PaymentHash H in (incoming ∪ outgoing)"]
+    Loop --> S1["1. Look up global RoutedPayment for H"]
+    S1 --> S2["2. total_in = Σ payments[H].incoming[ch]<br/>(with this channel's new value substituted)"]
+    S2 --> S3["3. total_out = Σ payments[H].outgoing[ch]<br/>(with this channel's new value substituted)"]
+    S3 --> S4["4. invoiced = invoices[H].amount_msat or None"]
+    S4 --> C1{"5. validate_payment_balance<br/>total_in + max_to_invoice >= total_out?"}
+    C1 -->|No| R1["REJECT<br/>policy-commitment-htlc-routing-balance"]
+    C1 -->|Yes| C2{"6. validate_payment_cltv<br/>incoming_cltv − outgoing_cltv >= 34?"}
+    C2 -->|No| R2["REJECT<br/>policy-routing-cltv-delta"]
+    C2 -->|Yes| C3{"7. validate balance delta<br/>excess_amount + new − old >= 0?"}
+    C3 -->|No| R3["REJECT<br/>policy-routing-balanced"]
+    C3 -->|Yes| OK["PASS"]
 ```
 
 ### What Gets Checked on Each Message
@@ -843,21 +720,17 @@ If the HTLC times out without settlement:
 
 ### Case 6: CLTV Delta Too Small
 
-```
-Node                                    Signer
- │                                        │
- │── SignRemoteCommitmentTx(            │
- │     htlcs=[offered: H,               │
- │            cltv_expiry=800,010])  ──►│
- │                                        │
- │                                        │  payments[H].incoming_cltv = 800,034
- │                                        │  outgoing_cltv = 800,010
- │                                        │  delta = 800,034 - 800,010 = 24
- │                                        │  24 < 34 (minimum) ❌
- │                                        │
- │◄── REJECTED ────────────────────────│  policy-routing-cltv-delta
- │                                        │
- │  ❌ Node must use sufficient delta    │
+```mermaid
+sequenceDiagram
+    participant Node
+    participant Signer
+
+    Node->>Signer: SignRemoteCommitmentTx(<br/>htlcs=[{offered: H, cltv=800,010}])
+    activate Signer
+    Note over Signer: payments[H].incoming_cltv = 800,034<br/>outgoing_cltv = 800,010<br/>delta = 24 < 34 (minimum) ❌
+    Signer--xNode: REJECTED (policy-routing-cltv-delta)
+    deactivate Signer
+    Note over Node: ❌ Node must use sufficient CLTV delta
 ```
 
 **Why 34 blocks minimum?**
@@ -895,6 +768,91 @@ For one routed payment through two channels, the signer handles:
 **Total: 14 signer interactions for one routed payment.**
 
 Each of the commitment-related messages (1, 3, 5, 7, 9, 11, 13) triggers the full routing validation: balance check, CLTV check, excess amount tracking, and all structural commitment rules.
+
+### Complete Lifecycle Diagram
+
+```mermaid
+sequenceDiagram
+    participant Alice
+    participant Node
+    participant Signer
+    participant Bob
+
+    rect rgb(240, 248, 255)
+        Note over Alice, Bob: Phase 3: HTLC Add — Incoming on CH1
+
+        Alice->>Node: update_add_htlc(H, 100,100 sat)
+        Alice->>Node: commitment_signed(CH1 #1)
+
+        Node->>Signer: 1. ValidateCommitmentTx(CH1, #1)
+        Signer-->>Node: OK
+        Node->>Signer: 2. RevokeCommitmentTx(CH1, #0)
+        Signer-->>Node: secret
+        Node->>Alice: revoke_and_ack
+    end
+
+    rect rgb(255, 248, 240)
+        Note over Alice, Bob: Phase 3: HTLC Add — Outgoing on CH2
+
+        Node->>Signer: 3. SignRemoteCommitmentTx(CH2, #1)
+        Signer-->>Node: sig
+        Node->>Bob: update_add_htlc(H, 100,000 sat)
+        Node->>Bob: commitment_signed(CH2 #1)
+
+        Bob->>Node: revoke_and_ack
+        Node->>Signer: 4. ValidateRevocation(CH2, #0)
+        Signer-->>Node: OK
+
+        Bob->>Node: commitment_signed(CH2 #1)
+        Node->>Signer: 5. ValidateCommitmentTx(CH2, #1)
+        Signer-->>Node: OK
+        Node->>Signer: 6. RevokeCommitmentTx(CH2, #0)
+        Signer-->>Node: secret
+        Node->>Bob: revoke_and_ack
+
+        Node->>Signer: 7. SignRemoteCommitmentTx(CH1, #1)
+        Signer-->>Node: sig
+        Node->>Alice: commitment_signed(CH1 #1)
+
+        Alice->>Node: revoke_and_ack
+        Node->>Signer: 8. ValidateRevocation(CH1, #0)
+        Signer-->>Node: OK
+    end
+
+    Note over Alice, Bob: HTLC in flight — waiting for preimage
+
+    rect rgb(240, 255, 240)
+        Note over Alice, Bob: Phase 4: HTLC Settlement — Bob fulfills
+
+        Bob->>Node: update_fulfill_htlc(H, preimage)
+        Bob->>Node: commitment_signed(CH2 #2)
+        Node->>Signer: 9. ValidateCommitmentTx(CH2, #2)
+        Signer-->>Node: OK
+        Node->>Signer: 10. RevokeCommitmentTx(CH2, #1)
+        Signer-->>Node: secret
+    end
+
+    rect rgb(255, 240, 255)
+        Note over Alice, Bob: Phase 4: HTLC Settlement — We fulfill to Alice
+
+        Node->>Signer: 11. SignRemoteCommitmentTx(CH1, #2)
+        Signer-->>Node: sig
+        Node->>Alice: update_fulfill_htlc(H, preimage)
+        Node->>Alice: commitment_signed(CH1 #2)
+
+        Alice->>Node: revoke_and_ack
+        Node->>Signer: 12. ValidateRevocation(CH1, #1)
+        Signer-->>Node: OK
+
+        Alice->>Node: commitment_signed(CH1 #2)
+        Node->>Signer: 13. ValidateCommitmentTx(CH1, #2)
+        Signer-->>Node: OK
+        Node->>Signer: 14. RevokeCommitmentTx(CH1, #1)
+        Signer-->>Node: secret
+    end
+
+    Note over Alice, Bob: Payment complete — routing fee earned: 100 sat
+```
 
 ---
 
