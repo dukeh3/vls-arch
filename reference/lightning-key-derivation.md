@@ -4,6 +4,46 @@ This document maps the simplified notation used in our diagrams to the actual ke
 
 ---
 
+## Notation Legend
+
+Short notation used in all scenario diagrams. Alice's keys are uppercase `A` with a suffix, Bob's are uppercase `B`. Per-commitment values are lowercase with a state number.
+
+### Static keys (exchanged once at channel open)
+
+| Notation | Full name | Sent in |
+|----------|-----------|---------|
+| `Af` / `Bf` | `funding_pubkey` | open_channel / accept_channel |
+| `Ar` / `Br` | `revocation_basepoint` | open_channel / accept_channel |
+| `Ap` / `Bp` | `payment_basepoint` | open_channel / accept_channel |
+| `Ad` / `Bd` | `delayed_payment_basepoint` | open_channel / accept_channel |
+| `Ah` / `Bh` | `htlc_basepoint` | open_channel / accept_channel |
+
+### Per-commitment values (change with each state N)
+
+| Notation | Full name | How it's used |
+|----------|-----------|---------------|
+| `apN` / `bpN` | `per_commitment_point` (state N) | Public — shared with counterparty for key derivation |
+| `asN` / `bsN` | `per_commitment_secret` (state N) | Private — revealed in `revoke_and_ack` when revoking state N |
+
+### Derived keys (computed from basepoints + per-commitment point)
+
+| Notation | Formula | Meaning |
+|----------|---------|---------|
+| `rp(Ar, bpN)` | revocation pubkey from Alice's basepoint + Bob's commitment point | Penalty path — Alice can spend if Bob broadcasts revoked state N |
+| `dp(Bd, bpN)` | delayed payment key from Bob's basepoint + Bob's commitment point | Delayed path — Bob spends after CSV timeout |
+
+### Other notation
+
+| Notation | Meaning |
+|----------|---------|
+| `dt` | `to_self_delay` — CSV timelock in blocks |
+| `H` | Payment hash (HTLC) |
+| `P` | Payment preimage (satisfies H) |
+| `T` | CLTV expiry (absolute block height) |
+| `sig_Af(tx)` | Signature on `tx` using Alice's funding key |
+
+---
+
 ## Basepoints Exchanged at Channel Open
 
 Each side sends these static public keys in `open_channel` / `accept_channel`:

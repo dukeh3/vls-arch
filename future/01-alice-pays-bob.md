@@ -1,6 +1,8 @@
-# Lightning Messages — Alice Pays Bob (Both Have VLS Signers)
+# Scenario 01 — Alice Pays Bob (VLS Signer — Future/Batched)
 
-Same scenario as `lightning-alice-pays-bob-messages.md`, but showing VLS signer calls for both Alice and Bob.
+Same scenario as `../reference/01-alice-pays-bob.md`, but showing VLS signer calls for both Alice and Bob. This is the **future/optimized** version where calls are batched where possible.
+
+For notation (`Af`, `Ar`, `ap0`, `rp(...)`, etc.) see [Key Derivation](../reference/lightning-key-derivation.md#notation-legend).
 
 ---
 
@@ -16,31 +18,26 @@ sequenceDiagram
     participant SignerB as Bob Signer
     participant Bitcoin
 
-    Alice->>SignerA: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) + SetupChannel(is_outbound=true)
+    Alice->>SignerA: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0)
     SignerA-->>Alice: Af, Ar, Ap, Ad, Ah, ap0
 
     Alice->>Bob: open_channel
     Note over Alice, Bob: funding_satoshis=1.0 BTC<br/>Af, Ar, Ap, Ad, Ah, ap0
 
-    Bob->>SignerB: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) + SetupChannel(is_outbound=false)
+    Bob->>SignerB: NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0)
     SignerB-->>Bob: Bf, Br, Bp, Bd, Bh, bp0
 
     Bob->>Alice: accept_channel
     Note over Alice, Bob: Bf, Br, Bp, Bd, Bh, bp0
 
-    Note over Alice: Creates funding tx (unsigned)<br/>1.0 BTC to 2-of-2(Af, Bf)
-
-    Alice->>SignerA: SignRemoteCommitmentTx(commitment_B_0)
+    Alice->>SignerA: SetupChannel(is_outbound=true) + SignRemoteCommitmentTx(commitment_B_0)
     SignerA-->>Alice: sig_Af(commitment_B_0)
 
     Alice->>Bob: funding_created
     Note over Alice, Bob: funding_txid, funding_output_index<br/>sig_Af(commitment_B_0)
 
-    Bob->>SignerB: ValidateCommitmentTx(commitment_B_0, sig_Af)
-    SignerB-->>Bob: OK
-
-    Bob->>SignerB: SignRemoteCommitmentTx(commitment_A_0)
-    SignerB-->>Bob: sig_Bf(commitment_A_0)
+    Bob->>SignerB: SetupChannel(is_outbound=false) + ValidateCommitmentTx(commitment_B_0, sig_Af) + SignRemoteCommitmentTx(commitment_A_0)
+    SignerB-->>Bob: OK, sig_Bf(commitment_A_0)
 
     Bob->>Alice: funding_signed
     Note over Alice, Bob: sig_Bf(commitment_A_0)
@@ -73,25 +70,25 @@ sequenceDiagram
 
 ### Signer Calls Summary
 
-**Alice (funder) — 5 calls:**
+**Alice (funder) — 5 batched calls:**
 
 | Call | When | Purpose |
 |------|------|---------|
-| NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) + SetupChannel | Before open_channel sent | Get keys, register channel |
-| SignRemoteCommitmentTx(commitment_B_0) | Before funding_created sent | Sign Bob's commitment for him |
+| NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) | Before open_channel sent | Get keys, register channel |
+| SetupChannel + SignRemoteCommitmentTx(commitment_B_0) | After accept_channel received | Register counterparty params, sign Bob's commitment |
 | ValidateCommitmentTx(commitment_A_0, sig_Bf) | After funding_signed received | Validate Bob's sig on our commitment |
 | SignWithdrawal(funding_tx) | Before broadcast | Sign the funding tx inputs |
 | CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) | After funding tx confirmed | Lock channel, get ap1 for channel_ready |
 
-**Bob (non-funder) — 4 calls:**
+**Bob (non-funder) — 3 batched calls:**
 
 | Call | When | Purpose |
 |------|------|---------|
-| NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) + SetupChannel | After open_channel received | Get keys, register channel |
-| ValidateCommitmentTx(commitment_B_0, sig_Af) + SignRemoteCommitmentTx(commitment_A_0) | After funding_created received | Validate Alice's sig, sign her commitment |
+| NewChannel + GetChannelBasepoints + GetPerCommitmentPoint(0) | After open_channel received | Get keys, register channel |
+| SetupChannel + ValidateCommitmentTx(commitment_B_0, sig_Af) + SignRemoteCommitmentTx(commitment_A_0) | After funding_created received | Register params, validate Alice's sig, sign her commitment |
 | CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) | After funding tx confirmed | Lock channel, get bp1 for channel_ready |
 
-Alice has 2 extra calls: `SignRemoteCommitmentTx` (she signs first, before funding_created) and `SignWithdrawal` (she owns the funding tx).
+Note: SetupChannel requires both sides' parameters (funding_pubkey, basepoints, to_self_delay). It cannot be called until after accept_channel/funding_created — when both sides' channel parameters are known.
 
 ---
 
@@ -232,3 +229,58 @@ sequenceDiagram
 | ValidateCommitmentTx(commitment_A_2, sig_Bf) | After commitment_signed received | Validate our new commitment, HTLC removed |
 | RevokeCommitmentTx(1) | Before revoke_and_ack sent | Get as1 to revoke our commitment 1 |
 | SignRemoteCommitmentTx(commitment_B_2) | Before commitment_signed sent | Sign Bob's new commitment, HTLC removed |
+
+---
+
+## Cooperative Close
+
+Both sides agree to close the channel. No more HTLCs pending.
+
+```mermaid
+sequenceDiagram
+    participant SignerA as Alice Signer
+    participant Alice
+    participant Bob
+    participant SignerB as Bob Signer
+    participant Bitcoin
+
+    Alice->>Bob: shutdown
+    Note over Alice, Bob: scriptpubkey_A
+
+    Bob->>Alice: shutdown
+    Note over Alice, Bob: scriptpubkey_B
+
+    Alice->>SignerA: SignMutualCloseTx(close_tx)
+    SignerA-->>Alice: sig_Af(close_tx)
+
+    Alice->>Bob: closing_signed
+    Note over Alice, Bob: fee_satoshis, sig_Af(close_tx)
+
+    Bob->>SignerB: SignMutualCloseTx(close_tx)
+    SignerB-->>Bob: sig_Bf(close_tx)
+
+    Bob->>Alice: closing_signed
+    Note over Alice, Bob: fee_satoshis, sig_Bf(close_tx)
+
+    Alice->>Bitcoin: broadcast close tx
+    Note over Bitcoin: close_tx spends funding output<br/>0.8 BTC → scriptpubkey_A<br/>0.2 BTC → scriptpubkey_B
+
+    Bitcoin-->>Alice: confirmed
+    Bitcoin-->>Bob: confirmed
+
+    Note over Alice, Bob: Channel closed cooperatively
+```
+
+### Signer Calls — Cooperative Close
+
+**Alice — 1 call:**
+
+| Call | When | Purpose |
+|------|------|---------|
+| SignMutualCloseTx(close_tx) | Before closing_signed sent | Sign the cooperative close transaction |
+
+**Bob — 1 call:**
+
+| Call | When | Purpose |
+|------|------|---------|
+| SignMutualCloseTx(close_tx) | Before closing_signed sent | Sign the cooperative close transaction |
