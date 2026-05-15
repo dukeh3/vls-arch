@@ -216,13 +216,13 @@ sequenceDiagram
 
     Bob->>Alice: revoke_and_ack(bs0, bp2)
 
+    Alice->>SignerA: ValidateRevocation(<br/>commitment_number=0,<br/>commitment_secret=bs0)
+    SignerA-->>Alice: OK
+
     Bob->>SignerB: SignRemoteCommitmentTx(<br/>tx=commitment_A_1, psbt,<br/>remote_funding_key=Af,<br/>remote_per_commitment_point=ap1,<br/>commitment_number=1, feerate,<br/>htlcs=[offered: H, 0.2 BTC, T=100])
     SignerB-->>Bob: sig_Bf(commitment_A_1)
 
     Bob->>Alice: commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])
-
-    Alice->>SignerA: ValidateRevocation(<br/>commitment_number=0,<br/>commitment_secret=bs0)
-    SignerA-->>Alice: OK
 
     Alice->>SignerA: ValidateCommitmentTx(<br/>tx=commitment_A_1, psbt,<br/>commitment_number=1, feerate,<br/>htlcs=[offered: H, 0.2 BTC, T=100],<br/>signature=sig_Bf, htlc_signatures)
     SignerA-->>Alice: next_per_commitment_point=ap2
