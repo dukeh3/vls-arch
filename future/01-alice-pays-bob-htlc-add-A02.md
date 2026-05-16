@@ -103,10 +103,20 @@ The mirror direction (counterparty signing our commitment) is another 3 RTTs hap
 
 ---
 
-## Next
+## HTLC Add Complete
 
-Bob also validates Alice's revocation (after Alice sends her `revoke_and_ack`) → [htlc-add-B02](01-alice-pays-bob-htlc-add-B02.md).
-
-After both sides validate revocations, commitment 1 is fully established:
+After both sides validate revocations (Bob does the mirror of this step using the same `vls_validate_revocation`), commitment 1 is fully established:
 - Alice: 0.8 BTC + 0.2 HTLC(H) | Bob: 0.0
 - Commitment 0 revoked on both signers
+
+### Summary of proxy messages for commitment updates
+
+| Message | Purpose | RTTs |
+|---------|---------|------|
+| `vls_commitment_signed` | Sign counterparty's new commitment | 1 |
+| `vls_revoke_commitment` | Validate own new commitment + revoke old | 1 |
+| `vls_validate_revocation` | Validate counterparty's revocation secret | 1 |
+
+Each direction uses all three messages (3 RTTs). Both directions run in parallel.
+
+Next: HTLC settlement (Bob reveals preimage).

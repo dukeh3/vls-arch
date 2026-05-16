@@ -169,4 +169,4 @@ In this scenario they happen to be identical, but in general they are **not the 
 
 ## Next
 
-After Bob sends `revoke_and_ack` + `commitment_signed`, Alice processes them → [htlc-add-A02](01-alice-pays-bob-htlc-add-A02.md).
+After Bob sends `revoke_and_ack`, Alice validates the revocation → [htlc-add-A02](01-alice-pays-bob-htlc-add-A02.md).
