@@ -1,6 +1,6 @@
 # A04 — Alice Confirms Funding and Sends Channel Ready
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A03](01-alice-pays-bob-A03.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A03](01-alice-pays-bob-open-channel-A03.md).
 
 **Scope:** From funding tx confirmation until Alice sends `channel_ready` to Bob.
 
@@ -80,7 +80,7 @@ This requires a new message direction: signer-proxy → node-proxy (notification
 
 ## Proxy Optimization (v2 — 1 round-trip)
 
-Same pattern as [A01](01-alice-pays-bob-A01.md): the node-proxy sees CheckOutpoint and knows LockOutpoint + GetPerCommitmentPoint(1) always follow for this channel. Speculative prefetch:
+Same pattern as [A01](01-alice-pays-bob-open-channel-A01.md): the node-proxy sees CheckOutpoint and knows LockOutpoint + GetPerCommitmentPoint(1) always follow for this channel. Speculative prefetch:
 
 1. Node sends `CheckOutpoint` → proxy recognizes the post-confirmation trigger
 2. Proxy sends `vls_channel_ready(channel_id)` to signer-proxy (all three calls)
@@ -164,6 +164,6 @@ Smallest proxy message in the entire flow — just a channel_id.
 
 ## Next
 
-Bob does the same post-confirmation sequence → [B03](01-alice-pays-bob-B03.md).
+Bob does the same post-confirmation sequence → [B03](01-alice-pays-bob-open-channel-B03.md).
 
 After both sides exchange `channel_ready`, commitment 0 is established and the channel is open for payments.

@@ -1,6 +1,6 @@
 # A02 — Alice Sets Up Channel and Signs Bob's First Commitment
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [B01](01-alice-pays-bob-B01.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [B01](01-alice-pays-bob-open-channel-B01.md).
 
 **Scope:** From Alice receiving `accept_channel` until `funding_created` is sent to Bob.
 
@@ -158,4 +158,4 @@ sequenceDiagram
 
 ## Next
 
-After `funding_created` is sent, Bob processes it → [B02](01-alice-pays-bob-B02.md).
+After `funding_created` is sent, Bob processes it → [B02](01-alice-pays-bob-open-channel-B02.md).

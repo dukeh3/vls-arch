@@ -1,6 +1,6 @@
 # B02 — Bob Validates His Commitment and Signs Alice's
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A02](01-alice-pays-bob-A02.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A02](01-alice-pays-bob-open-channel-A02.md).
 
 **Scope:** From Bob receiving `funding_created` until `funding_signed` is sent to Alice.
 
@@ -50,7 +50,7 @@ sequenceDiagram
 
 ### What the signer does internally
 
-**SetupChannel** — same as [A02](01-alice-pays-bob-A02.md) but with `is_outbound=false`. Stores Alice's basepoints and the funding outpoint.
+**SetupChannel** — same as [A02](01-alice-pays-bob-open-channel-A02.md) but with `is_outbound=false`. Stores Alice's basepoints and the funding outpoint.
 
 **ValidateCommitmentTx2** ([handler.rs:1415](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1415)):
 - Builds `commitment_B_0` internally from stored channel params + provided values
@@ -170,4 +170,4 @@ sequenceDiagram
 
 ## Next
 
-After `funding_signed` is sent, Alice validates her commitment and signs the funding tx → [A03](01-alice-pays-bob-A03.md).
+After `funding_signed` is sent, Alice validates her commitment and signs the funding tx → [A03](01-alice-pays-bob-open-channel-A03.md).

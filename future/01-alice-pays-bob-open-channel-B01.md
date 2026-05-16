@@ -1,6 +1,6 @@
 # B01 — Bob Accepts Channel: Initial Signer Setup
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A01](01-alice-pays-bob-A01.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A01](01-alice-pays-bob-open-channel-A01.md).
 
 **Scope:** From Bob receiving `open_channel` until `accept_channel` is sent back to Alice.
 
@@ -18,7 +18,7 @@ Before Bob can reply with `accept_channel`, he needs his own set of keys:
 - Channel basepoints (`Br`, `Bp`, `Bd`, `Bh`)
 - His first per-commitment point (`bp0`)
 
-This is structurally identical to [A01](01-alice-pays-bob-A01.md) — same three VLS calls, same proxy optimization.
+This is structurally identical to [A01](01-alice-pays-bob-open-channel-A01.md) — same three VLS calls, same proxy optimization.
 
 ## VLS Calls (Current — 3 separate round-trips)
 
@@ -56,7 +56,7 @@ sequenceDiagram
 
 ## Proxy Optimization (v2 — 1 round-trip)
 
-Same mechanism as [A01](01-alice-pays-bob-A01.md): node-proxy sees `NewChannel`, sends `vls_accept_channel` speculatively, caches the reply.
+Same mechanism as [A01](01-alice-pays-bob-open-channel-A01.md): node-proxy sees `NewChannel`, sends `vls_accept_channel` speculatively, caches the reply.
 
 ### `vls_create_channel` — proxy-to-proxy message (same as A01)
 
@@ -128,4 +128,4 @@ A01 and B01 are structurally identical — same `vls_create_channel` message, sa
 
 ## Next
 
-After `accept_channel` is sent, Alice processes it and prepares the funding transaction → [A02](01-alice-pays-bob-A02.md).
+After `accept_channel` is sent, Alice processes it and prepares the funding transaction → [A02](01-alice-pays-bob-open-channel-A02.md).
