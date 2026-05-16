@@ -119,4 +119,12 @@ After both sides validate revocations (Bob does the mirror of this step using th
 
 Each direction uses all three messages (3 RTTs). Both directions run in parallel.
 
-Next: HTLC settlement (Bob reveals preimage).
+### HTLC Settlement (section 03)
+
+Bob reveals the preimage by sending `update_fulfill_htlc(id=0, preimage=P)` to Alice. This is pure node bookkeeping — no signer call involved.
+
+The subsequent commitment update (removing the HTLC, moving 0.2 BTC to Bob's balance) uses the same three proxy messages documented above. The only differences are:
+- Balances: Alice 0.8 BTC | Bob 0.2 BTC
+- HTLCs: empty (HTLC removed)
+
+No new proxy message or mechanism — structurally identical to section 02.
