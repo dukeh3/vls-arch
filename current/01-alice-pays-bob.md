@@ -214,15 +214,14 @@ sequenceDiagram
     Bob->>SignerB: RevokeCommitmentTx(commitment_number=0)
     SignerB-->>Bob: old_commitment_secret=bs0, next_per_commitment_point=bp2
 
-    Bob->>Alice: revoke_and_ack(bs0, bp2)
-
-    Alice->>SignerA: ValidateRevocation(<br/>commitment_number=0,<br/>commitment_secret=bs0)
-    SignerA-->>Alice: OK
-
     Bob->>SignerB: SignRemoteCommitmentTx(<br/>tx=commitment_A_1, psbt,<br/>remote_funding_key=Af,<br/>remote_per_commitment_point=ap1,<br/>commitment_number=1, feerate,<br/>htlcs=[offered: H, 0.2 BTC, T=100])
     SignerB-->>Bob: sig_Bf(commitment_A_1)
 
+    Bob->>Alice: revoke_and_ack(bs0, bp2)
     Bob->>Alice: commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])
+
+    Alice->>SignerA: ValidateRevocation(<br/>commitment_number=0,<br/>commitment_secret=bs0)
+    SignerA-->>Alice: OK
 
     Alice->>SignerA: ValidateCommitmentTx(<br/>tx=commitment_A_1, psbt,<br/>commitment_number=1, feerate,<br/>htlcs=[offered: H, 0.2 BTC, T=100],<br/>signature=sig_Bf, htlc_signatures)
     SignerA-->>Alice: next_per_commitment_point=ap2
@@ -232,7 +231,10 @@ sequenceDiagram
 
     Alice->>Bob: revoke_and_ack(as0, ap2)
 
-    Note over Alice, Bob: Commitment 1 established<br/>Commitment 0 revoked<br/>Alice: 0.8 + 0.2 HTLC | Bob: 0.0
+    Bob->>SignerB: ValidateRevocation(<br/>commitment_number=0,<br/>commitment_secret=as0)
+    SignerB-->>Bob: OK
+
+    Note over Alice, Bob: Commitment 1 established<br/>Commitment 0 revoked on both signers<br/>Alice: 0.8 + 0.2 HTLC | Bob: 0.0
 ```
 
 ### Signer Calls — Commitment 1
@@ -246,13 +248,14 @@ sequenceDiagram
 | 3 | ValidateCommitmentTx | tx, psbt, cmt=1, feerate, htlcs=[offered], sig=sig_Bf, htlc_sigs | next_per_commitment_point=ap2 (advances state) |
 | 4 | RevokeCommitmentTx | commitment_number=0 | old_secret=as0, next_pcp=ap2 |
 
-**Bob (responder) — 3 separate calls:**
+**Bob (responder) — 4 separate calls:**
 
 | # | Call | Key parameters in | Returns |
 |---|------|-------------------|---------|
 | 1 | ValidateCommitmentTx | tx, psbt, cmt=1, feerate, htlcs=[received], sig=sig_Af, htlc_sigs | next_per_commitment_point=bp2 (advances state) |
 | 2 | RevokeCommitmentTx | commitment_number=0 | old_secret=bs0, next_pcp=bp2 |
 | 3 | SignRemoteCommitmentTx | tx, psbt, remote_funding_key=Af, remote_pcp=ap1, cmt=1, feerate, htlcs=[offered] | signature |
+| 4 | ValidateRevocation | commitment_number=0, commitment_secret=as0 | — (stores as0 for penalty) |
 
 Note: The HTLC is "offered" from the signer's perspective when signing the remote commitment (we are offering it to them) and "received" when validating our own commitment (we received it from them). Same HTLC, different viewpoint — this is because each commitment is built from the holder's perspective.
 
@@ -282,11 +285,10 @@ sequenceDiagram
     Alice->>SignerA: RevokeCommitmentTx(commitment_number=1)
     SignerA-->>Alice: old_commitment_secret=as1, next_per_commitment_point=ap3
 
-    Alice->>Bob: revoke_and_ack(as1, ap3)
-
     Alice->>SignerA: SignRemoteCommitmentTx(<br/>tx=commitment_B_2, psbt,<br/>remote_funding_key=Bf,<br/>remote_per_commitment_point=bp2,<br/>commitment_number=2, feerate,<br/>htlcs=[])
     SignerA-->>Alice: sig_Af(commitment_B_2)
 
+    Alice->>Bob: revoke_and_ack(as1, ap3)
     Alice->>Bob: commitment_signed(sig_Af(commitment_B_2))
 
     Bob->>SignerB: ValidateRevocation(<br/>commitment_number=1,<br/>commitment_secret=as1)
@@ -300,7 +302,10 @@ sequenceDiagram
 
     Bob->>Alice: revoke_and_ack(bs1, bp3)
 
-    Note over Alice, Bob: Commitment 2 established<br/>Commitment 1 revoked<br/>Alice: 0.8 BTC | Bob: 0.2 BTC
+    Alice->>SignerA: ValidateRevocation(<br/>commitment_number=1,<br/>commitment_secret=bs1)
+    SignerA-->>Alice: OK
+
+    Note over Alice, Bob: Commitment 2 established<br/>Commitment 1 revoked on both signers<br/>Alice: 0.8 BTC | Bob: 0.2 BTC
 ```
 
 ### Signer Calls — Commitment 2
@@ -314,13 +319,14 @@ sequenceDiagram
 | 3 | ValidateCommitmentTx | tx, psbt, cmt=2, feerate, htlcs=[], sig=sig_Af, htlc_sigs=[] | next_per_commitment_point=bp3 (advances state) |
 | 4 | RevokeCommitmentTx | commitment_number=1 | old_secret=bs1, next_pcp=bp3 |
 
-**Alice (responder) — 3 separate calls:**
+**Alice (responder) — 4 separate calls:**
 
 | # | Call | Key parameters in | Returns |
 |---|------|-------------------|---------|
 | 1 | ValidateCommitmentTx | tx, psbt, cmt=2, feerate, htlcs=[], sig=sig_Bf, htlc_sigs=[] | next_per_commitment_point=ap3 (advances state) |
 | 2 | RevokeCommitmentTx | commitment_number=1 | old_secret=as1, next_pcp=ap3 |
 | 3 | SignRemoteCommitmentTx | tx, psbt, remote_funding_key=Bf, remote_pcp=bp2, cmt=2, feerate, htlcs=[] | signature |
+| 4 | ValidateRevocation | commitment_number=1, commitment_secret=bs1 | — (stores bs1 for penalty) |
 
 ---
 
