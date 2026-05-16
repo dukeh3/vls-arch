@@ -29,9 +29,9 @@ Handler implementations — `vls-protocol-signer/src/handler.rs`:
 
 | Call | Handler | Line |
 |------|---------|------|
-| NewChannel | `RootHandler::do_handle` | [handler.rs:748](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L748) |
+| NewChannel | `RootHandler::do_handle` | [handler.rs:750](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L750) |
 | GetChannelBasepoints | `RootHandler::do_handle` | [handler.rs:757](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L757) |
-| GetPerCommitmentPoint | `ChannelHandler::do_handle` | [handler.rs:1171](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1171) |
+| GetPerCommitmentPoint | `ChannelHandler::do_handle` | [handler.rs:1228](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1228) |
 | SetupChannel | `ChannelHandler::do_handle` | [handler.rs:1203](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1203) |
 | SignRemoteCommitmentTx | `ChannelHandler::do_handle` | [handler.rs:1308](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1308) |
 | ValidateCommitmentTx | `ChannelHandler::do_handle` | [handler.rs:1415](../validating-lightning-signer/vls-protocol-signer/src/handler.rs#L1415) |

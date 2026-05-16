@@ -33,12 +33,12 @@ Parameters verified against VLS source at commit `75e3a46b`. Diagrams assume **p
 ## Architecture — v2 two-proxy batching
 
 ```
-   Alice  ────→  ProxyA1       ════→       ProxyA2  ────→  Alice Signer
+   Alice  ────→  ProxyA1       ════→       ProxyA2  ────→  Alice V1 Signer
                  (node-proxy   batched      (signer-proxy
                   buffer +     VLS calls)    dispatcher)
                   batcher)
 
-   Bob    ────→  ProxyB1       ════→       ProxyB2  ────→  Bob Signer
+   Bob    ────→  ProxyB1       ════→       ProxyB2  ────→  Bob V1 Signer
 ```
 
 - **Node-proxy** (ProxyA1 / ProxyB1) — receives individual VLS calls from the node, buffers callable batches, sends one compressed message to the signer-proxy.
@@ -85,14 +85,14 @@ Alice funds a 1.0 BTC channel. Each side has two proxy layers; batches are forme
 
 ```mermaid
 sequenceDiagram
-    participant SignerA as Alice Signer
+    participant SignerA as Alice V1 Signer
     participant ProxyA2 as Alice signer-proxy
     participant ProxyA1 as Alice node-proxy
     participant Alice
     participant Bob
     participant ProxyB1 as Bob node-proxy
     participant ProxyB2 as Bob signer-proxy
-    participant SignerB as Bob Signer
+    participant SignerB as Bob V1 Signer
     participant Bitcoin
 
     Note over Alice, ProxyA1: Batch A0-1 — initial setup
@@ -249,14 +249,14 @@ Alice sends 0.2 BTC to Bob via HTLC. Payment hash H, CLTV timeout T=100.
 
 ```mermaid
 sequenceDiagram
-    participant SignerA as Alice Signer
+    participant SignerA as Alice V1 Signer
     participant ProxyA2 as Alice signer-proxy
     participant ProxyA1 as Alice node-proxy
     participant Alice
     participant Bob
     participant ProxyB1 as Bob node-proxy
     participant ProxyB2 as Bob signer-proxy
-    participant SignerB as Bob Signer
+    participant SignerB as Bob V1 Signer
 
     Alice->>Bob: update_add_htlc(id=0, 0.2 BTC, H, cltv=100)
 
@@ -348,14 +348,14 @@ Bob reveals the preimage, claiming the 0.2 BTC. HTLC removed from both commitmen
 
 ```mermaid
 sequenceDiagram
-    participant SignerA as Alice Signer
+    participant SignerA as Alice V1 Signer
     participant ProxyA2 as Alice signer-proxy
     participant ProxyA1 as Alice node-proxy
     participant Alice
     participant Bob
     participant ProxyB1 as Bob node-proxy
     participant ProxyB2 as Bob signer-proxy
-    participant SignerB as Bob Signer
+    participant SignerB as Bob V1 Signer
 
     Bob->>Alice: update_fulfill_htlc(id=0, P)
 
@@ -443,14 +443,14 @@ Both sides agree to close the channel. No batching opportunity — each side iss
 
 ```mermaid
 sequenceDiagram
-    participant SignerA as Alice Signer
+    participant SignerA as Alice V1 Signer
     participant ProxyA2 as Alice signer-proxy
     participant ProxyA1 as Alice node-proxy
     participant Alice
     participant Bob
     participant ProxyB1 as Bob node-proxy
     participant ProxyB2 as Bob signer-proxy
-    participant SignerB as Bob Signer
+    participant SignerB as Bob V1 Signer
     participant Bitcoin
 
     Alice->>Bob: shutdown(scriptpubkey_A)
