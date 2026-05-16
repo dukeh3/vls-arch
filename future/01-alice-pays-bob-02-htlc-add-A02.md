@@ -1,6 +1,6 @@
 # HTLC Add A02 — Alice Validates Bob's Revocation
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [htlc-add-B01](01-alice-pays-bob-htlc-add-B01.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [htlc-add-B01](01-alice-pays-bob-02-htlc-add-B01.md).
 
 **Scope:** Alice receives Bob's `revoke_and_ack` and validates his revocation secret.
 
@@ -14,7 +14,7 @@ Alice receives `revoke_and_ack(bs0, bp2)` from Bob. She now:
 
 After this, Alice holds `bs0`. If Bob ever broadcasts his revoked commitment_B_0, Alice can use `bs0` to sweep all channel funds (penalty transaction).
 
-Alice also receives Bob's `commitment_signed` (mirror of [A01](01-alice-pays-bob-htlc-add-A01.md)) and processes it exactly as Bob did in [B01](01-alice-pays-bob-htlc-add-B01.md) — validate + revoke → send `revoke_and_ack(as0, ap2)`. That uses `vls_revoke_commitment` and happens in parallel with this step.
+Alice also receives Bob's `commitment_signed` (mirror of [A01](01-alice-pays-bob-02-htlc-add-A01.md)) and processes it exactly as Bob did in [B01](01-alice-pays-bob-02-htlc-add-B01.md) — validate + revoke → send `revoke_and_ack(as0, ap2)`. That uses `vls_revoke_commitment` and happens in parallel with this step.
 
 ## VLS Call (Current — 1 round-trip)
 

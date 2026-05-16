@@ -1,6 +1,6 @@
 # HTLC Add B01 — Bob Validates and Revokes
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [htlc-add-A01](01-alice-pays-bob-htlc-add-A01.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [htlc-add-A01](01-alice-pays-bob-02-htlc-add-A01.md).
 
 **Scope:** From Bob receiving `commitment_signed` until `revoke_and_ack` is sent to Alice.
 
@@ -13,7 +13,7 @@ Bob receives `update_add_htlc` followed by `commitment_signed(sig_Af(commitment_
 2. Revokes his old commitment (`commitment_B_0`) — releases the secret `bs0`
 3. Sends `revoke_and_ack(bs0, bp2)` to Alice
 
-Bob also needs to sign Alice's new commitment (`commitment_A_1`) and send `commitment_signed` — this is a mirror of [A01](01-alice-pays-bob-htlc-add-A01.md) using `vls_commitment_signed` and can happen in parallel. Since `update_add_htlc` already provides all the HTLC details and Bob already has `ap1` (from Alice's `channel_ready`), the SignRemoteCommitmentTx2 call could even be issued before `commitment_signed` arrives.
+Bob also needs to sign Alice's new commitment (`commitment_A_1`) and send `commitment_signed` — this is a mirror of [A01](01-alice-pays-bob-02-htlc-add-A01.md) using `vls_commitment_signed` and can happen in parallel. Since `update_add_htlc` already provides all the HTLC details and Bob already has `ap1` (from Alice's `channel_ready`), the SignRemoteCommitmentTx2 call could even be issued before `commitment_signed` arrives.
 
 The commitment state moves from:
 - commitment 0: Alice 1.0 BTC | Bob 0.0 (Bob's side now revoked)
@@ -136,7 +136,7 @@ sequenceDiagram
 
 ### Bob's `commitment_signed` — parallel, mirror of A01
 
-Bob also sends `commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])` to Alice. This uses the same `vls_commitment_signed` message documented in [A01](01-alice-pays-bob-htlc-add-A01.md) — a single SignRemoteCommitmentTx2 call, 1 RTT. It happens in parallel with Alice processing `revoke_and_ack`.
+Bob also sends `commitment_signed(sig_Bf(commitment_A_1), [sig_Bf(htlc_timeout_tx)])` to Alice. This uses the same `vls_commitment_signed` message documented in [A01](01-alice-pays-bob-02-htlc-add-A01.md) — a single SignRemoteCommitmentTx2 call, 1 RTT. It happens in parallel with Alice processing `revoke_and_ack`.
 
 Since SignRemoteCommitmentTx2 only needs `ap1` (from `channel_ready`) and the HTLC details (from `update_add_htlc`), it has no dependency on `commitment_signed` arriving — the node could issue it as soon as `update_add_htlc` is received.
 
@@ -169,4 +169,4 @@ In this scenario they happen to be identical, but in general they are **not the 
 
 ## Next
 
-After Bob sends `revoke_and_ack`, Alice validates the revocation → [htlc-add-A02](01-alice-pays-bob-htlc-add-A02.md).
+After Bob sends `revoke_and_ack`, Alice validates the revocation → [htlc-add-A02](01-alice-pays-bob-02-htlc-add-A02.md).

@@ -127,4 +127,4 @@ This step is 1 RTT regardless. The proxy value here is:
 
 ## Next
 
-After `commitment_signed` is sent, Bob processes it → [htlc-add-B01](01-alice-pays-bob-htlc-add-B01.md).
+After `commitment_signed` is sent, Bob processes it → [htlc-add-B01](01-alice-pays-bob-02-htlc-add-B01.md).
