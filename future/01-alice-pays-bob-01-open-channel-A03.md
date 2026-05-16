@@ -1,6 +1,6 @@
 # A03 — Alice Validates Her Commitment and Signs the Funding Tx
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [B02](01-alice-pays-bob-open-channel-B02.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [B02](01-alice-pays-bob-01-open-channel-B02.md).
 
 **Scope:** From Alice receiving `funding_signed` until the funding transaction is broadcast.
 
@@ -58,7 +58,7 @@ sequenceDiagram
 
 ## Proxy Optimization (v2 — 1 round-trip)
 
-Same pattern as [A02](01-alice-pays-bob-open-channel-A02.md): ValidateCommitmentTx2 reply is discarded, SignWithdrawal reply is needed.
+Same pattern as [A02](01-alice-pays-bob-01-open-channel-A02.md): ValidateCommitmentTx2 reply is discarded, SignWithdrawal reply is needed.
 
 1. Node sends `ValidateCommitmentTx2` → proxy returns success immediately (deferred)
 2. Node sends `SignWithdrawal` → proxy sends both bundled to signer-proxy
@@ -67,7 +67,7 @@ Same pattern as [A02](01-alice-pays-bob-open-channel-A02.md): ValidateCommitment
 
 ### `vls_sign_funding` — proxy-to-proxy message
 
-Combines ValidateCommitmentTx2 + SignWithdrawal. The signer-proxy already has channel params from [A02](01-alice-pays-bob-open-channel-A02.md)'s SetupChannel, so ValidateCommitmentTx2 values are mostly derivable. The truly new data is:
+Combines ValidateCommitmentTx2 + SignWithdrawal. The signer-proxy already has channel params from [A02](01-alice-pays-bob-01-open-channel-A02.md)'s SetupChannel, so ValidateCommitmentTx2 values are mostly derivable. The truly new data is:
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -148,5 +148,5 @@ For now, `vls_sign_funding` passes the `utxos` and `psbt` as-is from the VLS wir
 ## What happens next
 
 After broadcast, both sides wait for confirmation. Then:
-- Alice: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) → sends `channel_ready(ap1)` → [A04](01-alice-pays-bob-open-channel-A04.md)
-- Bob: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) → sends `channel_ready(bp1)` → [B03](01-alice-pays-bob-open-channel-B03.md)
+- Alice: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) → sends `channel_ready(ap1)` → [A04](01-alice-pays-bob-01-open-channel-A04.md)
+- Bob: CheckOutpoint + LockOutpoint + GetPerCommitmentPoint(1) → sends `channel_ready(bp1)` → [B03](01-alice-pays-bob-01-open-channel-B03.md)

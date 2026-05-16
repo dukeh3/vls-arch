@@ -1,6 +1,6 @@
 # B03 — Bob Confirms Funding and Sends Channel Ready
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A04](01-alice-pays-bob-open-channel-A04.md).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A04](01-alice-pays-bob-01-open-channel-A04.md).
 
 **Scope:** From funding tx confirmation until Bob sends `channel_ready` to Alice.
 
@@ -8,7 +8,7 @@ Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows [A04](01
 
 ## Lightning Context
 
-The funding transaction has been confirmed. Bob performs the same post-confirmation sequence as Alice ([A04](01-alice-pays-bob-open-channel-A04.md)):
+The funding transaction has been confirmed. Bob performs the same post-confirmation sequence as Alice ([A04](01-alice-pays-bob-01-open-channel-A04.md)):
 1. Confirms the funding outpoint is buried
 2. Locks the outpoint in the signer
 3. Gets his next per-commitment point (`bp1`)
@@ -51,7 +51,7 @@ sequenceDiagram
 
 ## Proxy Optimization (v2 — 1 round-trip)
 
-Identical to [A04](01-alice-pays-bob-open-channel-A04.md). Same `vls_channel_ready` message, same speculative prefetch mechanism.
+Identical to [A04](01-alice-pays-bob-01-open-channel-A04.md). Same `vls_channel_ready` message, same speculative prefetch mechanism.
 
 ### `vls_channel_ready` — proxy-to-proxy message
 

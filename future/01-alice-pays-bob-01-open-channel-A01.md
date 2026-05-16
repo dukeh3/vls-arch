@@ -163,4 +163,4 @@ The `vls_create_channel` message already fuses three calls and strips redundant 
 
 ## Next
 
-After `open_channel` is sent, Bob processes it → [B01](01-alice-pays-bob-open-channel-B01.md).
+After `open_channel` is sent, Bob processes it → [B01](01-alice-pays-bob-01-open-channel-B01.md).

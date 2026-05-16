@@ -1,6 +1,6 @@
 # HTLC Add A01 — Alice Signs Bob's New Commitment
 
-Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows channel open ([open-channel-B03](01-alice-pays-bob-open-channel-B03.md)).
+Part of [Scenario 01 — Alice Pays Bob](01-alice-pays-bob.md). Follows channel open ([open-channel-B03](01-alice-pays-bob-01-open-channel-B03.md)).
 
 **Scope:** From Alice deciding to send a payment until `commitment_signed` is sent to Bob.
 
