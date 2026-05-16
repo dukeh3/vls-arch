@@ -71,14 +71,14 @@ The mechanism is **speculative prefetch**:
 
 1. Node sends `NewChannel` to node-proxy
 2. Node-proxy recognizes this as a channel-open trigger — it knows `GetChannelBasepoints` and `GetPerCommitmentPoint(0)` will follow immediately
-3. Node-proxy sends `vls_open_channel(peer_id, channel_id)` to signer-proxy
+3. Node-proxy sends `vls_create_channel(peer_id, channel_id)` to signer-proxy
 4. Signer-proxy expands this into the three VLS calls, processes them sequentially, returns the results
 5. Node-proxy **caches** the basepoints and per-commitment point
 6. Node-proxy returns OK to the node
 7. When the node asks for GetChannelBasepoints → node-proxy answers from cache (instant)
 8. When the node asks for GetPerCommitmentPoint(0) → node-proxy answers from cache (instant)
 
-### `vls_open_channel` — proxy-to-proxy message
+### `vls_create_channel` — proxy-to-proxy message
 
 | Parameter | Type | Description |
 |-----------|------|-------------|
@@ -87,12 +87,12 @@ The mechanism is **speculative prefetch**:
 
 `commitment_number=0` is implicit — opening a channel always starts at commitment 0.
 
-The signer-proxy expands `vls_open_channel` into:
+The signer-proxy expands `vls_create_channel` into:
 1. `NewChannel(peer_id, channel_id)` → OK
 2. `GetChannelBasepoints(peer_id, channel_id)` → basepoints + funding_pubkey
 3. `GetPerCommitmentPoint(commitment_number=0)` → point
 
-Reply: `vls_open_channel_reply(funding_pubkey, basepoints, per_commitment_point_0)`
+Reply: `vls_create_channel_reply(funding_pubkey, basepoints, per_commitment_point_0)`
 
 | Return field | Type | Description |
 |--------------|------|-------------|
@@ -110,7 +110,7 @@ sequenceDiagram
 
     Alice->>NP: NewChannel(peer_id=Bob, channel_id)
 
-    NP->>SP: vls_open_channel(peer_id=Bob, channel_id)
+    NP->>SP: vls_create_channel(peer_id=Bob, channel_id)
 
     SP->>Signer: NewChannel(peer_id=Bob, channel_id)
     Signer-->>SP: OK
@@ -119,7 +119,7 @@ sequenceDiagram
     SP->>Signer: GetPerCommitmentPoint(0)
     Signer-->>SP: point=ap0
 
-    SP-->>NP: vls_open_channel_reply(Af, {Ar, Ap, Ad, Ah}, ap0)
+    SP-->>NP: vls_create_channel_reply(Af, {Ar, Ap, Ad, Ah}, ap0)
     Note over NP: Caches basepoints + ap0
 
     NP-->>Alice: OK
@@ -145,8 +145,8 @@ sequenceDiagram
 
 | | Current (3 round-trips) | v2 Proxy (1 round-trip) |
 |---|---|---|
-| node-proxy → signer-proxy | 3 separate messages | 1 `vls_open_channel` (41 B) |
-| signer-proxy → node-proxy | 3 separate replies | 1 `vls_open_channel_reply` (198 B) |
+| node-proxy → signer-proxy | 3 separate messages | 1 `vls_create_channel` (41 B) |
+| signer-proxy → node-proxy | 3 separate replies | 1 `vls_create_channel_reply` (198 B) |
 | Latency | 3 × RTT | 1 × RTT |
 
 The savings are in **latency** and **protocol simplicity**. Three sequential round-trips become one semantic message. The node sees near-zero latency on calls 2 and 3 (served from cache).
@@ -155,7 +155,7 @@ The savings are in **latency** and **protocol simplicity**. Three sequential rou
 
 ## Further Optimization
 
-The `vls_open_channel` message already fuses three calls and strips redundant fields. One further opportunity:
+The `vls_create_channel` message already fuses three calls and strips redundant fields. One further opportunity:
 
 - **Prefetch `GetPerCommitmentPoint(1)`.** The signer-proxy knows that `channel_ready` (after funding confirms) will need `ap1`. It could speculatively request both point 0 and point 1 in the same signer session, and include `ap1` in the reply. This front-loads a future round-trip at no extra latency cost.
 
