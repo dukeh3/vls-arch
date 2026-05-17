@@ -194,3 +194,144 @@ To spend: Alice signs with her `payment_basepoint_secret`. No derivation needed.
 | Funding | `A_funding + B_funding` | No | Static 2-of-2 multisig |
 
 Note: The delayed key changing per state is a design vestige. It could be static without affecting security — the revocation mechanism doesn't depend on it. It was kept as-is because only `to_remote` caused real recovery problems in practice.
+
+---
+
+## From 24 Words to Channel Keys
+
+This section traces the complete derivation chain from a BIP39 mnemonic to the keys used in Lightning channels. VLS supports multiple derivation styles (CLN-native, LDK, LND) — we document the LDK style here as it's used in the scenario docs.
+
+### Step 0: Mnemonic → Seed
+
+The operator generates a 24-word BIP39 mnemonic (256 bits of entropy). This produces a 64-byte seed via PBKDF2:
+
+```
+mnemonic: "abandon abandon abandon ... about" (24 words)
+     ↓ BIP39 (PBKDF2-HMAC-SHA512, passphrase="")
+seed: [64 bytes]
+```
+
+This seed is programmed into the signer at provisioning time. It never leaves the signer.
+
+### Step 1: Seed → Master Key and Node Identity
+
+```
+seed [64 bytes]
+ ↓ BIP32 master key derivation
+master_key (xprv)
+ ├── m/0' → node_secret → node_id (the Lightning node's public identity)
+ ├── m/3' → channel_master_key (base for all channel key derivation)
+ ├── m/4' → rand_bytes_master_key (CSPRNG seed)
+ ├── m/5' → inbound_payment_key (BOLT11 invoice hashing)
+ └── m/9735' → bolt12_secret (BOLT12 signing)
+```
+
+The `node_id` is the node's public key on the Lightning network — what peers use to identify and route to this node.
+
+### Step 2: Channel Master Key → Per-Channel Seed
+
+When a new channel is opened, a unique `channel_seed` is derived for that specific channel:
+
+```
+channel_master_key (m/3')
+ ↓ BIP32 derive using channel_id
+child_privkey
+ ↓ SHA256(keys_id || seed || child_privkey)
+unique_start
+ ↓ SHA256(unique_start)
+channel_seed [32 bytes] — unique per channel
+```
+
+The `keys_id` incorporates the peer's pubkey and the channel database ID, ensuring each channel gets distinct keys even with the same peer.
+
+### Step 3: Channel Seed → Channel Keys
+
+From the `channel_seed`, six values are derived in a chain (each feeds into the next):
+
+```
+channel_seed
+ ├── SHA256(channel_seed || "commitment seed")
+ │    → commitment_seed [32 bytes] — root for shachain
+ │
+ ├── SHA256(channel_seed || commitment_seed || "funding key")
+ │    → funding_key_secret → funding_pubkey (Af/Bf)
+ │
+ ├── SHA256(channel_seed || funding_key || "revocation base key")
+ │    → revocation_base_secret → revocation_basepoint (Ar/Br)
+ │
+ ├── SHA256(channel_seed || revocation_base_key || "payment key")
+ │    → payment_secret → payment_basepoint (Ap/Bp)
+ │
+ ├── SHA256(channel_seed || payment_key || "delayed payment base key")
+ │    → delayed_payment_secret → delayed_payment_basepoint (Ad/Bd)
+ │
+ └── SHA256(channel_seed || delayed_payment_key || "HTLC base key")
+      → htlc_secret → htlc_basepoint (Ah/Bh)
+```
+
+These are the five basepoints sent in `open_channel` / `accept_channel`, plus the funding key for the 2-of-2 multisig. They are **static for the lifetime of the channel**.
+
+### Step 4: Commitment Seed → Per-Commitment Secrets (Shachain)
+
+The `commitment_seed` is the root of a shachain — a hash-based tree that generates per-commitment secrets in reverse order:
+
+```
+commitment_seed
+ ↓ shachain(commitment_number)
+per_commitment_secret[N] [32 bytes]
+ ↓ scalar × G
+per_commitment_point[N] (the apN / bpN in our notation)
+```
+
+Properties:
+- Secrets are generated in **reverse** order (highest commitment number first)
+- A receiver can store all revealed secrets in O(log N) space
+- Any previous secret can be derived from a later one
+- The point is **public** (shared with counterparty for key derivation)
+- The secret is **private** (revealed only when revoking that state)
+
+### Step 5: On-Chain Wallet Keys
+
+For on-chain outputs (funding transaction inputs, cooperative close outputs), the signer uses BIP32 wallet derivation:
+
+```
+master_key
+ ↓ standard BIP84 path
+m/84'/0'/0'/0/N → individual wallet keys (native segwit P2WPKH)
+```
+
+The `local_wallet_path_hint` in `SignMutualCloseTx2` tells the signer which index `N` was used, so it can verify the close output goes to a key it owns.
+
+### Complete Picture: One Seed, Many Channels
+
+```
+24-word mnemonic
+ ↓
+seed [64 bytes]
+ ↓
+master_key
+ ├── node_id (one per node, public identity)
+ ├── wallet keys m/84'/0'/0'/0/N (on-chain addresses)
+ │
+ ├── channel_seed[0] (channel with peer X, dbid=0)
+ │    ├── funding_pubkey, basepoints (Af, Ar, Ap, Ad, Ah)
+ │    └── commitment_seed → secrets[0], secrets[1], ...
+ │
+ ├── channel_seed[1] (channel with peer Y, dbid=1)
+ │    ├── funding_pubkey, basepoints (different values)
+ │    └── commitment_seed → secrets[0], secrets[1], ...
+ │
+ └── channel_seed[N] (each channel gets unique keys)
+      ├── funding_pubkey, basepoints
+      └── commitment_seed → secrets[0], secrets[1], ...
+```
+
+Each channel is cryptographically isolated — compromising one channel's secrets does not reveal another channel's keys. Only the master seed (the 24 words) is the single point of compromise.
+
+### What the Signer Needs to Know
+
+To operate, the signer needs:
+- The **seed** (programmed once at provisioning)
+- The **channel parameters** (provided via SetupChannel: peer_id, dbid, counterparty basepoints, etc.)
+
+From just these two inputs, the signer can deterministically regenerate all channel keys on demand. No additional key material needs to be stored or transported — this is why the NSC protocol only carries signing requests, never key material.
