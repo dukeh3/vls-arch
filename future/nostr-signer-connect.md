@@ -2,6 +2,8 @@
 
 NSC allows an **NSC-capable node** to connect to an **NSC-capable signer** using the VLS protocol, transported over Nostr. Modeled after [NWC (Nostr Wallet Connect, NIP-47)](https://github.com/nostr-protocol/nips/blob/master/47.md).
 
+The formal NIP specification is at [`/nips/XY.md`](../../nips/XY.md). This document provides additional architectural context specific to the VLS deployment.
+
 ## Analogy to NWC
 
 | | NWC | NSC |
@@ -67,13 +69,13 @@ NSC is one of three Nostr-based Lightning protocols, all sharing the same archit
 |--------|-------------|-------------|-----|
 | Purpose | Wallet operations | Node administration | VLS signing operations |
 | Connects | App → Wallet | Client → Node | Node → Signer |
-| Request kind | 23194 | 23198 | **29100** |
-| Response kind | 23195 | 23199 | **29101** |
-| Notification kind | 23196/23197 | 23200 | **29102** |
+| Request kind | 23194 | 23198 | **23201** |
+| Response kind | 23195 | 23199 | **23202** |
+| Notification kind | 23196/23197 | 23200 | **23203** |
 | Encryption | NIP-44 | NIP-44 | NIP-44 |
 | Correlation | `e` tag on response | `e` tag on response | `e` tag on response |
 | Pairing | `nostr+walletconnect://` | `nostr+nodecontrol://` | `nostr+signerconnect://` |
-| Info event | kind 13194 | kind 13198 | kind **39100** |
+| Info event | kind 13194 | kind 13198 | kind **13200** |
 | Access control | kind 30078 UsageProfile | kind 30078 UsageProfile | NIP-AB (relay-level) |
 
 ### How they relate
@@ -128,11 +130,11 @@ The signer generates this URI during provisioning. It is delivered to the node o
 
 ## Event Structure
 
-### Request Event (kind 29100) — node → signer
+### Request Event (kind 23201) — node → signer
 
 ```json
 {
-  "kind": 29100,
+  "kind": 23201,
   "pubkey": "<npub_node>",
   "created_at": 1700000000,
   "tags": [
@@ -145,11 +147,11 @@ The signer generates this URI during provisioning. It is delivered to the node o
 }
 ```
 
-### Response Event (kind 29101) — signer → node
+### Response Event (kind 23202) — signer → node
 
 ```json
 {
-  "kind": 29101,
+  "kind": 23202,
   "pubkey": "<npub_signer>",
   "created_at": 1700000001,
   "tags": [
@@ -269,11 +271,11 @@ The VLS protocol operations travel as NSC methods. These can be either raw VLS c
 
 ## Info Event (Capabilities)
 
-The signer publishes a replaceable info event (kind 39100) advertising its capabilities:
+The signer publishes a replaceable info event (kind 13200) advertising its capabilities:
 
 ```json
 {
-  "kind": 39100,
+  "kind": 13200,
   "pubkey": "<npub_signer>",
   "tags": [
     ["encryption", "nip44_v2"]
@@ -292,7 +294,7 @@ The node can fetch this on startup to verify the signer supports the expected me
 
 ```json
 {
-  "kinds": [29101, 29102],
+  "kinds": [23202, 23203],
   "#p": ["<npub_node>"]
 }
 ```
@@ -303,7 +305,7 @@ This delivers all responses and notifications addressed to the node.
 
 ```json
 {
-  "kinds": [29100],
+  "kinds": [23201],
   "#p": ["<npub_signer>"]
 }
 ```
@@ -312,7 +314,7 @@ This delivers all requests addressed to the signer.
 
 ---
 
-## Notifications (kind 29102)
+## Notifications (kind 23203)
 
 The signer can send unsolicited notifications to the node:
 
@@ -324,7 +326,7 @@ The signer can send unsolicited notifications to the node:
 
 ```json
 {
-  "kind": 29102,
+  "kind": 23203,
   "pubkey": "<npub_signer>",
   "tags": [
     ["p", "<npub_node>"]
@@ -457,18 +459,18 @@ sequenceDiagram
     Node->>Node: Build vls_commitment_signed request
     Node->>Node: Encrypt payload (NIP-44)
 
-    Node->>Relay: EVENT kind:29100<br/>[p: npub_signer]<br/>[expiration: now+30s]
+    Node->>Relay: EVENT kind:23201<br/>[p: npub_signer]<br/>[expiration: now+30s]
 
-    Relay->>Signer: EVENT kind:29100 (delivered via subscription)
+    Relay->>Signer: EVENT kind:23201 (delivered via subscription)
 
     Signer->>Signer: Decrypt payload (NIP-44)
     Signer->>Signer: Validate expiration + signature
     Signer->>Signer: Execute VLS call(s) internally
 
     Signer->>Signer: Encrypt response (NIP-44)
-    Signer->>Relay: EVENT kind:29101<br/>[p: npub_node]<br/>[e: request_id]
+    Signer->>Relay: EVENT kind:23202<br/>[p: npub_node]<br/>[e: request_id]
 
-    Relay->>Node: EVENT kind:29101 (delivered via subscription)
+    Relay->>Node: EVENT kind:23202 (delivered via subscription)
 
     Node->>Node: Decrypt + match to pending request (e tag)
 
@@ -539,7 +541,7 @@ The signer processes requests sequentially per channel (to maintain state consis
 
 ## Open Questions
 
-1. **Event kind numbers** — 29100/29101/29102/39100 are placeholder. Should we register a NIP or use the existing NIP-47 kinds with a different `method` namespace?
+1. **Event kind numbers** — 13200/23201/23202/23203 as specified in [NIP-XY](../../nips/XY.md). Need formal NIP number assignment.
 
 2. **Binary vs JSON payloads** — JSON is clearer for spec, binary is more efficient. Does it matter on an internal relay?
 
