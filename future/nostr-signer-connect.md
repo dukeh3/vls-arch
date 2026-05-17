@@ -40,44 +40,65 @@ The node and signer each have a dedicated Nostr keypair for their NSC connection
 
 ### What makes a node "NSC-capable"?
 
-The node includes an NSC client layer that:
+The node includes an NSC client that:
 - Translates VLS API calls into NSC request events
 - Publishes them to the relay
 - Waits for response events from the signer
 - Returns the signer's reply to the node's VLS client interface
 
-This layer can optionally compress multiple VLS calls into single NSC messages (see [proxy optimization](01-alice-pays-bob.md)).
+This is analogous to how an NWC-capable app includes an NWC client, or how an NNC-capable dashboard includes an NNC client.
 
 ### What makes a signer "NSC-capable"?
 
-The signer includes an NSC service layer that:
+The signer includes an NSC service that:
 - Subscribes to request events on the relay
-- Decrypts and dispatches VLS calls to the signer core
+- Decrypts and executes VLS operations
 - Publishes response events with the results
 
-The signer core (VLS) is unchanged — it still receives individual VLS calls and returns results.
+This is analogous to how an NWC-capable wallet includes an NWC service, or how an NNC-capable node includes an NNC service.
 
 ---
 
 ## Protocol Overview
 
-| Aspect | NWC (NIP-47) | NSC |
-|--------|-------------|-----|
-| Purpose | Wallet operations | VLS signing operations |
-| Request kind | 23194 | **29100** |
-| Response kind | 23195 | **29101** |
-| Notification kind | 23196/23197 | **29102** |
-| Encryption | NIP-44 | NIP-44 |
-| Correlation | `e` tag on response | `e` tag on response |
-| Pairing | `nostr+walletconnect://` URI | `nostr+signerconnect://` URI |
-| Info event | kind 13194 (replaceable) | kind **39100** (replaceable) |
+NSC is one of three Nostr-based Lightning protocols, all sharing the same architectural pattern:
 
-### Why new event kinds?
+| Aspect | NWC (NIP-47) | NNC (NIP-XX) | NSC |
+|--------|-------------|-------------|-----|
+| Purpose | Wallet operations | Node administration | VLS signing operations |
+| Connects | App → Wallet | Client → Node | Node → Signer |
+| Request kind | 23194 | 23198 | **29100** |
+| Response kind | 23195 | 23199 | **29101** |
+| Notification kind | 23196/23197 | 23200 | **29102** |
+| Encryption | NIP-44 | NIP-44 | NIP-44 |
+| Correlation | `e` tag on response | `e` tag on response | `e` tag on response |
+| Pairing | `nostr+walletconnect://` | `nostr+nodecontrol://` | `nostr+signerconnect://` |
+| Info event | kind 13194 | kind 13198 | kind **39100** |
+| Access control | kind 30078 UsageProfile | kind 30078 UsageProfile | NIP-AB (relay-level) |
 
-NWC kinds (23194/23195) are semantically "wallet connect" — a client asking a service to move money. NSC is structurally similar but semantically different — a node asking a signer to produce signatures. Separate kinds allow:
+### How they relate
+
+```
+  Owner/App                Node                    Signer
+     │                      │                        │
+     │── NWC (pay, recv) ──→│                        │
+     │── NNC (channels) ───→│                        │
+     │                      │── NSC (sign, revoke) ─→│
+     │                      │                        │
+```
+
+- **NWC**: App asks the node to move money (pay_invoice, get_balance, make_invoice)
+- **NNC**: Owner/admin asks the node to manage itself (open_channel, set_fees, list_peers)
+- **NSC**: Node asks the signer to produce signatures (sign commitment, revoke, validate)
+
+All three can run on the same internal relay. They use separate event kinds so each service subscribes only to its own traffic.
+
+### Why new event kinds for NSC?
+
+NWC and NNC kinds are semantically "control a node" — a client asking a service to perform operations. NSC is structurally similar but the trust direction is inverted: the node is the *client* asking the signer to do work. Separate kinds allow:
 - Relay filters to distinguish traffic types
-- Clients to subscribe to only the events they care about
-- Clear separation when NWC and NSC run on the same relay
+- Each service to subscribe only to its relevant events
+- Independent access control policies per protocol
 
 ---
 
@@ -386,20 +407,20 @@ If the signer is temporarily disconnected, the node will timeout and retry (the 
 
 ---
 
-## Comparison with NWC
+## Comparison with NWC and NNC
 
-| Aspect | NWC | NSC |
-|--------|-----|-----|
-| Initiator | User/app (many) | Node (one) |
-| Responder | Wallet service (one) | Signer (one) |
-| Cardinality | Many-to-one | One-to-one |
-| Latency requirement | Seconds acceptable | Sub-second required |
-| Relay type | Public or private | Internal only |
-| Message frequency | Low (user-initiated) | High (per commitment update) |
-| Payload size | Small (invoice strings) | Medium (signatures + points) |
-| Connection lifetime | Long-lived (days/months) | Long-lived (lifetime of deployment) |
+| Aspect | NWC | NNC | NSC |
+|--------|-----|-----|-----|
+| Initiator | User/app (many) | Owner/admin (few) | Node (one) |
+| Responder | Wallet/node (one) | Node service (one) | Signer (one) |
+| Cardinality | Many-to-one | Few-to-one | One-to-one |
+| Latency requirement | Seconds acceptable | Seconds acceptable | Sub-second required |
+| Relay type | Public or private | Public or private | Internal only |
+| Message frequency | Low (user-initiated) | Low (admin-initiated) | High (per commitment update) |
+| Payload size | Small (invoice strings) | Small (channel params) | Medium (signatures + points) |
+| Connection lifetime | Long-lived (days/months) | Long-lived (days/months) | Long-lived (lifetime of deployment) |
 
-The one-to-one cardinality means the relay handles minimal fan-out — essentially a point-to-point encrypted channel with store-and-forward capability.
+NSC's one-to-one cardinality means the relay handles minimal fan-out — essentially a point-to-point encrypted channel with store-and-forward capability.
 
 ---
 
