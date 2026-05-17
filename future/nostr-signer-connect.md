@@ -1,19 +1,29 @@
-# Nostr Signer Connect (NSC) — Proxy-to-Proxy Transport
+# Nostr Signer Connect (NSC)
 
-This document specifies how the node-proxy and signer-proxy communicate over Nostr, using a protocol modeled after [NWC (Nostr Wallet Connect, NIP-47)](https://github.com/nostr-protocol/nips/blob/master/47.md).
+NSC allows an **NSC-capable node** to connect to an **NSC-capable signer** using the VLS protocol, transported over Nostr. Modeled after [NWC (Nostr Wallet Connect, NIP-47)](https://github.com/nostr-protocol/nips/blob/master/47.md).
+
+## Analogy to NWC
+
+| | NWC | NSC |
+|---|---|---|
+| What connects | NWC-capable app → NWC-capable wallet | NSC-capable node → NSC-capable signer |
+| What travels | Wallet operations (pay_invoice, get_balance, ...) | VLS operations (sign commitment, revoke, ...) |
+| Transport | Nostr events via relay | Nostr events via relay |
+| Who initiates | App (client) | Node (client) |
+| Who responds | Wallet (service) | Signer (service) |
+
+Just as NWC lets any NWC-capable app talk to any NWC-capable wallet without knowing its internals, NSC lets any NSC-capable node talk to any NSC-capable signer. The node doesn't care whether the signer runs in an enclave, on a hardware device, or in a cloud TEE — it just sends VLS requests over Nostr and gets signatures back.
 
 ## Motivation
 
-The proxy-to-proxy link is the expensive one — it crosses a trust boundary between the node (DMZ) and the signer (enclave). In v2, we defined [semantic proxy messages](01-alice-pays-bob.md) (`vls_commitment_signed`, `vls_revoke_commitment`, etc.) that compress multiple VLS calls into single round-trips. NSC defines how these messages travel over the wire.
-
-Using Nostr as the transport gives us:
-- **Relay-mediated delivery** — no direct connection needed between node and enclave
+Using Nostr as the transport between node and signer gives us:
+- **Relay-mediated delivery** — no direct connection needed between node and signer
 - **Offline tolerance** — relay queues messages if either side is temporarily unavailable
 - **Encryption** — NIP-44 provides authenticated encryption on the relay
 - **Access control** — NIP-AB restricts who can publish to the internal relay
-- **Unified bus** — same relay carries NWC (wallet operations), NNC (node control), policy events, and now signer protocol messages
+- **Unified bus** — same relay carries NWC (wallet operations), NNC (node control), policy events, and now VLS protocol messages
 
-## Architecture Context
+## Architecture
 
 ```
                     Internal Nostr Relay
@@ -21,24 +31,39 @@ Using Nostr as the transport gives us:
                            │
               ┌────────────┼────────────┐
               │            │            │
-         node-proxy   (other svcs)  signer-proxy
-         npub_node                  npub_signer
-              │                         │
-         LDK node                  VLS Signer
-         (DMZ)                     (Enclave)
+      NSC-capable      (other       NSC-capable
+         node           svcs)         signer
+       npub_node                   npub_signer
 ```
 
-The node-proxy and signer-proxy each have a dedicated Nostr keypair. They communicate exclusively through the internal relay. The relay never faces the public internet.
+The node and signer each have a dedicated Nostr keypair for their NSC connection. They communicate exclusively through the internal relay. The relay never faces the public internet.
+
+### What makes a node "NSC-capable"?
+
+The node includes an NSC client layer that:
+- Translates VLS API calls into NSC request events
+- Publishes them to the relay
+- Waits for response events from the signer
+- Returns the signer's reply to the node's VLS client interface
+
+This layer can optionally compress multiple VLS calls into single NSC messages (see [proxy optimization](01-alice-pays-bob.md)).
+
+### What makes a signer "NSC-capable"?
+
+The signer includes an NSC service layer that:
+- Subscribes to request events on the relay
+- Decrypts and dispatches VLS calls to the signer core
+- Publishes response events with the results
+
+The signer core (VLS) is unchanged — it still receives individual VLS calls and returns results.
 
 ---
 
 ## Protocol Overview
 
-NSC follows the NWC request/response pattern:
-
 | Aspect | NWC (NIP-47) | NSC |
 |--------|-------------|-----|
-| Purpose | Wallet operations (pay, balance, etc.) | VLS signing operations |
+| Purpose | Wallet operations | VLS signing operations |
 | Request kind | 23194 | **29100** |
 | Response kind | 23195 | **29101** |
 | Notification kind | 23196/23197 | **29102** |
@@ -49,40 +74,40 @@ NSC follows the NWC request/response pattern:
 
 ### Why new event kinds?
 
-NWC kinds (23194/23195) are semantically "wallet connect" — a client asking a service to move money. NSC is structurally similar but semantically different — a node-proxy asking a signer-proxy to produce signatures. Separate kinds allow:
+NWC kinds (23194/23195) are semantically "wallet connect" — a client asking a service to move money. NSC is structurally similar but semantically different — a node asking a signer to produce signatures. Separate kinds allow:
 - Relay filters to distinguish traffic types
 - Clients to subscribe to only the events they care about
-- Clear separation if both NWC and NSC run on the same relay
+- Clear separation when NWC and NSC run on the same relay
 
 ---
 
 ## Connection String (Pairing)
 
 ```
-nostr+signerconnect://<signer_proxy_pubkey>?relay=<relay_url>&secret=<node_proxy_secret>
+nostr+signerconnect://<signer_pubkey>?relay=<relay_url>&secret=<node_secret>
 ```
 
 | Component | Description |
 |-----------|-------------|
-| `signer_proxy_pubkey` | 32-byte hex pubkey of the signer-proxy (unique per connection) |
+| `signer_pubkey` | 32-byte hex pubkey of the NSC-capable signer (unique per connection) |
 | `relay` | WebSocket URL of the internal relay (e.g., `ws://relay.internal:7777`) |
-| `secret` | 32-byte hex — the node-proxy's private key for this connection |
+| `secret` | 32-byte hex — the node's private key for this connection |
 
-The signer-proxy generates this URI during setup. It is delivered to the node-proxy out-of-band (config file, provisioning system, operator copy-paste). The `secret` serves as both the node-proxy's signing key and the ECDH input for NIP-44 encryption.
+The signer generates this URI during provisioning. It is delivered to the node out-of-band (config file, provisioning system, operator copy-paste). The `secret` serves as both the node's Nostr signing key and the ECDH input for NIP-44 encryption.
 
 ### Pairing flow
 
-1. **Operator provisions signer-proxy** — generates a fresh keypair (`nsec_signer` / `npub_signer`)
-2. **Signer-proxy generates connection URI** — includes `npub_signer`, the relay URL, and a fresh random `secret` for the node-proxy
-3. **Operator delivers URI to node-proxy** — via config file or provisioning API
-4. **Node-proxy derives its identity** — `nsec_node = secret`, `npub_node = pubkey(secret)`
+1. **Operator provisions signer** — signer generates a fresh keypair (`nsec_signer` / `npub_signer`)
+2. **Signer generates connection URI** — includes `npub_signer`, the relay URL, and a fresh random `secret` for the node
+3. **Operator delivers URI to node** — via config file or provisioning API
+4. **Node derives its identity** — `nsec_node = secret`, `npub_node = pubkey(secret)`
 5. **Both connect to relay** — subscribe to their respective event filters
 
 ---
 
 ## Event Structure
 
-### Request Event (kind 29100) — node-proxy → signer-proxy
+### Request Event (kind 29100) — node → signer
 
 ```json
 {
@@ -99,7 +124,7 @@ The signer-proxy generates this URI during setup. It is delivered to the node-pr
 }
 ```
 
-### Response Event (kind 29101) — signer-proxy → node-proxy
+### Response Event (kind 29101) — signer → node
 
 ```json
 {
@@ -118,11 +143,11 @@ The signer-proxy generates this URI during setup. It is delivered to the node-pr
 
 ### Correlation
 
-The response includes an **`e` tag** referencing the request event's `id`. This is how the node-proxy matches responses to pending requests.
+The response includes an **`e` tag** referencing the request event's `id`. This is how the node matches responses to pending requests.
 
 ### Expiration
 
-The `expiration` tag on requests prevents replay of stale signing requests. The signer-proxy MUST reject events whose expiration has passed. Recommended expiration: `created_at + 30 seconds` for signing operations.
+The `expiration` tag on requests prevents replay of stale signing requests. The signer MUST reject events whose expiration has passed. Recommended expiration: `created_at + 30 seconds` for signing operations.
 
 ---
 
@@ -193,7 +218,7 @@ The `content` field is NIP-44 encrypted JSON. The conversation key is derived on
 
 ## Methods
 
-Each proxy message from the [v2 protocol](01-alice-pays-bob.md) maps to an NSC method:
+The VLS protocol operations travel as NSC methods. These can be either raw VLS calls (one method per VLS message) or compressed calls (multiple VLS operations per method, as defined in the [v2 optimization](01-alice-pays-bob.md)):
 
 ### Channel open (section 01)
 
@@ -223,7 +248,7 @@ Each proxy message from the [v2 protocol](01-alice-pays-bob.md) maps to an NSC m
 
 ## Info Event (Capabilities)
 
-The signer-proxy publishes a replaceable info event (kind 39100) advertising its capabilities:
+The signer publishes a replaceable info event (kind 39100) advertising its capabilities:
 
 ```json
 {
@@ -236,13 +261,13 @@ The signer-proxy publishes a replaceable info event (kind 39100) advertising its
 }
 ```
 
-The node-proxy can fetch this on startup to verify the signer-proxy supports the expected methods.
+The node can fetch this on startup to verify the signer supports the expected methods.
 
 ---
 
 ## Subscriptions
 
-### Node-proxy subscribes to:
+### Node subscribes to:
 
 ```json
 {
@@ -251,9 +276,9 @@ The node-proxy can fetch this on startup to verify the signer-proxy supports the
 }
 ```
 
-This delivers all responses and notifications addressed to the node-proxy.
+This delivers all responses and notifications addressed to the node.
 
-### Signer-proxy subscribes to:
+### Signer subscribes to:
 
 ```json
 {
@@ -262,13 +287,13 @@ This delivers all responses and notifications addressed to the node-proxy.
 }
 ```
 
-This delivers all requests addressed to the signer-proxy.
+This delivers all requests addressed to the signer.
 
 ---
 
 ## Notifications (kind 29102)
 
-The signer-proxy can send unsolicited notifications to the node-proxy:
+The signer can send unsolicited notifications to the node:
 
 | Notification | Description |
 |-------------|-------------|
@@ -283,7 +308,7 @@ The signer-proxy can send unsolicited notifications to the node-proxy:
   "tags": [
     ["p", "<npub_node>"]
   ],
-  "content": "<nip44_encrypted>",
+  "content": "<nip44_encrypted>"
 }
 ```
 
@@ -341,9 +366,9 @@ Lightning requires fast signing responses (peer timeouts are typically 30-60 sec
 
 | Component | Typical latency |
 |-----------|----------------|
-| Node-proxy → relay (local network) | < 1 ms |
-| Relay → signer-proxy (local network / vsock) | < 1 ms |
-| Signer-proxy → VLS signer (in-process / vsock) | < 5 ms |
+| Node → relay (local network) | < 1 ms |
+| Relay → signer (local network / vsock) | < 1 ms |
+| Signer VLS processing | < 5 ms |
 | NIP-44 encrypt/decrypt | < 1 ms |
 | **Total per RTT** | **< 10 ms** |
 
@@ -351,13 +376,13 @@ For comparison, the current direct-link approach (vsock or TCP) is ~1-5 ms per R
 
 ### Optimization: WebSocket persistence
 
-Both proxies maintain persistent WebSocket connections to the relay. No connection setup per message.
+Both sides maintain persistent WebSocket connections to the relay. No connection setup per message.
 
 ### Optimization: No relay persistence needed
 
 For latency-sensitive signing operations, the relay can be configured as **ephemeral** — no event storage, pure pub/sub routing. Events are delivered to connected subscribers immediately and discarded. This eliminates disk I/O from the critical path.
 
-If the signer-proxy is temporarily disconnected, the node-proxy will timeout and retry (the Lightning node will handle this as a signer timeout). No queuing needed for signing operations.
+If the signer is temporarily disconnected, the node will timeout and retry (the Lightning node handles this as a signer timeout). No queuing needed for signing operations.
 
 ---
 
@@ -365,8 +390,8 @@ If the signer-proxy is temporarily disconnected, the node-proxy will timeout and
 
 | Aspect | NWC | NSC |
 |--------|-----|-----|
-| Initiator | User/app (many) | Node-proxy (one) |
-| Responder | Wallet service (one) | Signer-proxy (one) |
+| Initiator | User/app (many) | Node (one) |
+| Responder | Wallet service (one) | Signer (one) |
 | Cardinality | Many-to-one | One-to-one |
 | Latency requirement | Seconds acceptable | Sub-second required |
 | Relay type | Public or private | Internal only |
@@ -400,38 +425,33 @@ The examples above show JSON payloads for clarity. In production, the encrypted 
 
 ```mermaid
 sequenceDiagram
-    participant Node as LDK Node
-    participant NP as node-proxy<br/>(npub_node)
+    participant Node as NSC-capable Node
     participant Relay as Internal Relay
-    participant SP as signer-proxy<br/>(npub_signer)
-    participant Signer as VLS Signer
+    participant Signer as NSC-capable Signer
 
-    Note over NP, SP: Both connected via persistent WebSocket
+    Note over Node, Signer: Both connected via persistent WebSocket
 
-    Node->>NP: SignRemoteCommitmentTx2(bp1, cmt=1, ...)
+    Note over Node: LDK needs to sign counterparty commitment
 
-    NP->>NP: Translate to vls_commitment_signed
-    NP->>NP: Encrypt payload (NIP-44)
+    Node->>Node: Build vls_commitment_signed request
+    Node->>Node: Encrypt payload (NIP-44)
 
-    NP->>Relay: EVENT kind:29100<br/>[p: npub_signer]<br/>[expiration: now+30s]
+    Node->>Relay: EVENT kind:29100<br/>[p: npub_signer]<br/>[expiration: now+30s]
 
-    Relay->>SP: EVENT kind:29100 (delivered via subscription)
+    Relay->>Signer: EVENT kind:29100 (delivered via subscription)
 
-    SP->>SP: Decrypt payload (NIP-44)
-    SP->>SP: Validate expiration + signature
+    Signer->>Signer: Decrypt payload (NIP-44)
+    Signer->>Signer: Validate expiration + signature
+    Signer->>Signer: Execute VLS call(s) internally
 
-    SP->>Signer: SignRemoteCommitmentTx2(...)
-    Signer-->>SP: sig_Af, [htlc_sigs]
+    Signer->>Signer: Encrypt response (NIP-44)
+    Signer->>Relay: EVENT kind:29101<br/>[p: npub_node]<br/>[e: request_id]
 
-    SP->>SP: Encrypt response (NIP-44)
-    SP->>Relay: EVENT kind:29101<br/>[p: npub_node]<br/>[e: request_id]
+    Relay->>Node: EVENT kind:29101 (delivered via subscription)
 
-    Relay->>NP: EVENT kind:29101 (delivered via subscription)
+    Node->>Node: Decrypt + match to pending request (e tag)
 
-    NP->>NP: Decrypt response
-    NP->>NP: Match to pending request (e tag)
-
-    NP-->>Node: sig_Af, [htlc_sigs]
+    Note over Node: Returns signature to LDK
 ```
 
 ---
@@ -445,7 +465,7 @@ The internal relay needs minimal capabilities:
 | NIP-01 (basic protocol) | Event publishing and subscription |
 | NIP-44 support (passthrough) | Relay doesn't decrypt — just passes encrypted content |
 | NIP-AB (access control) | Restrict publishing to authorized pubkeys |
-| WebSocket server | Both proxies connect via persistent WS |
+| WebSocket server | Both sides connect via persistent WS |
 | Low latency routing | Deliver events to subscribers immediately |
 | Optional: event expiration | Auto-delete expired events (garbage collection) |
 
@@ -461,25 +481,25 @@ A minimal relay implementation (e.g., `strfry`, `nostr-rs-relay` with restricted
 
 ## Relationship to Roadmap
 
-| Version | Transport | Notes |
-|---------|-----------|-------|
-| v1 | Direct (vsock/TCP) | Single proxy passthrough — no relay |
-| v2 | Direct (vsock/TCP) | Named messages, call compression — no relay yet |
-| **v5** | **NSC over internal relay** | **This document** — messages travel as Nostr events |
+NSC is a transport layer. It carries VLS protocol messages — whether raw (one VLS call per NSC event) or compressed (multiple VLS calls per NSC event, as in the [v2 optimization](01-alice-pays-bob.md)).
 
-NSC is specified as v5 because it's a transport concern that's independent of the message semantics (v2) and the policy layer (v3/v4). You could run v2 messages over direct vsock *or* over NSC — the proxy logic doesn't change.
+| Version | Transport | Payload |
+|---------|-----------|---------|
+| v1 | Direct (vsock/TCP) | Raw VLS binary messages |
+| v2 | Direct (vsock/TCP) | Compressed named messages |
+| **v5** | **NSC over internal relay** | Compressed named messages as Nostr events |
 
-However, once the relay is in place (v5), v3 and v4 become natural:
-- **v3**: The signer-proxy already subscribes to the relay — it can now also subscribe to `kind:30078` UsageProfile events published by the owner
-- **v4**: The signer-proxy subscribes to chain attestation events from txood on the same relay
+Once the relay is in place, v3 and v4 become natural:
+- **v3**: The signer already subscribes to the relay — it can now also subscribe to `kind:30078` UsageProfile events published by the owner
+- **v4**: The signer subscribes to chain attestation events from txood on the same relay
 
 ---
 
 ## Multiple Channels / Concurrency
 
-The node-proxy may have multiple channels open and multiple signing operations in flight. Each request event has a unique `id`, and each response references it via `e` tag. The node-proxy maintains a map of pending request IDs → callbacks.
+The node may have multiple channels open and multiple signing operations in flight. Each request event has a unique `id`, and each response references it via `e` tag. The node maintains a map of pending request IDs → callbacks.
 
-The signer-proxy processes requests sequentially per channel (to maintain state consistency) but can process requests for different channels concurrently. Channel identification is via `channel_id` in the encrypted payload.
+The signer processes requests sequentially per channel (to maintain state consistency) but can process requests for different channels concurrently. Channel identification is via `channel_id` in the encrypted payload.
 
 ---
 
@@ -487,10 +507,10 @@ The signer-proxy processes requests sequentially per channel (to maintain state 
 
 | Failure | Behavior |
 |---------|----------|
-| Relay down | Both proxies lose connection. Node-proxy retries. Lightning node sees signer timeout. |
-| Signer-proxy down | Requests queue on relay (if persistent) or timeout. Node-proxy retries on reconnection. |
-| Node-proxy down | Signer-proxy has nothing to do. Lightning node is also down. |
-| Expired request | Signer-proxy rejects with error. Node-proxy retries with fresh event. |
+| Relay down | Both sides lose connection. Node retries. Lightning node sees signer timeout. |
+| Signer down | Requests queue on relay (if persistent) or timeout. Node retries on reconnection. |
+| Node down | Signer has nothing to do. Lightning node is also down. |
+| Expired request | Signer rejects with error. Node retries with fresh event. |
 | Invalid signature on event | Relay or recipient rejects event. Logged as potential attack. |
 | Decryption failure | Recipient rejects. Configuration mismatch — check pairing. |
 
@@ -504,8 +524,10 @@ The signer-proxy processes requests sequentially per channel (to maintain state 
 
 3. **Ephemeral vs persistent relay** — For signing operations, ephemeral (pure pub/sub) minimizes latency. But if we want the relay to queue messages during brief disconnections, we need some persistence. Hybrid approach: signing events are ephemeral, policy events (kind:30078) are persistent.
 
-4. **Multiple signer-proxies** — If we later support quorum signing (Epic 2), does each signer-proxy get its own keypair and connection URI? The node-proxy would then publish to multiple `p` tags or maintain multiple connections.
+4. **Multiple signers** — If we later support quorum signing (Epic 2), does each signer get its own keypair and connection URI? The node would then publish to multiple `p` tags or maintain multiple connections.
 
-5. **Heartbeat interval** — How often should the signer-proxy send heartbeats? Every block (~10 min)? More frequently for monitoring?
+5. **Heartbeat interval** — How often should the signer send heartbeats? Every block (~10 min)? More frequently for monitoring?
 
 6. **Relay authentication** — NIP-AB restricts publishing. Should the relay also authenticate subscribers (prevent unauthorized parties from observing encrypted traffic patterns)?
+
+7. **Raw vs compressed methods** — Should NSC support both raw VLS calls (one method = one VLS message) and compressed calls (one method = multiple VLS messages)? Or mandate compression?
