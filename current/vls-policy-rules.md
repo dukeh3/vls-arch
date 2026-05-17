@@ -13,7 +13,18 @@ Rules are categorized as:
 - **Mandatory** — Always enforced; violations result in signing refusal
 - **Optional** — Use-case specific; can be enabled per deployment (e.g., merchant mode, routing hub mode)
 
-Implementation source: `vls-core/src/policy/simple_validator.rs` (primary), `onchain_validator.rs` (chain-aware), documented in `docs/policy-controls.md`.
+Implementation source: `vls-core/src/policy/simple_validator.rs` (primary), `onchain_validator.rs` (chain-aware).
+
+### Upstream references
+
+| Resource | Path |
+|----------|------|
+| Master policy doc | [`validating-lightning-signer/docs/security/policy-controls.md`](../validating-lightning-signer/docs/security/policy-controls.md) |
+| Primary validator | [`vls-core/src/policy/simple_validator.rs`](../validating-lightning-signer/vls-core/src/policy/simple_validator.rs) |
+| On-chain validator | [`vls-core/src/policy/onchain_validator.rs`](../validating-lightning-signer/vls-core/src/policy/onchain_validator.rs) |
+| Filter implementation | [`vls-core/src/policy/filter.rs`](../validating-lightning-signer/vls-core/src/policy/filter.rs) |
+
+All rule identifiers (e.g. `policy-commitment-htlc-routing-balance`) are shared between this document and the upstream master. This document adds numbered entries, attack scenarios, and implementation status details not present in the upstream doc.
 
 ---
 
@@ -1101,4 +1112,4 @@ The policy rules protect against these threat categories:
 
 ---
 
-*Source: [VLS Repository](https://gitlab.com/lightning-signer/validating-lightning-signer), `vls-core/src/policy/` and `docs/policy-controls.md`*
+*Source: [VLS Repository](https://gitlab.com/lightning-signer/validating-lightning-signer) — master policy doc: [`docs/security/policy-controls.md`](../validating-lightning-signer/docs/security/policy-controls.md), implementation: [`vls-core/src/policy/simple_validator.rs`](../validating-lightning-signer/vls-core/src/policy/simple_validator.rs)*
