@@ -223,10 +223,13 @@ master_key (xprv)
  ├── m/3' → channel_master_key (base for all channel key derivation)
  ├── m/4' → rand_bytes_master_key (CSPRNG seed)
  ├── m/5' → inbound_payment_key (BOLT11 invoice hashing)
+ ├── m/6743' → nsec_signer → npub_signer (signer's Nostr identity for NSC)
  └── m/9735' → bolt12_secret (BOLT12 signing)
 ```
 
 The `node_id` is the node's public key on the Lightning network — what peers use to identify and route to this node.
+
+The `npub_signer` is the signer's permanent Nostr identity used for [NSC communication](../future/nostr-signer-connect.md). Derived deterministically so the signer recovers the same identity after a restart (see [Signer Provisioning](../future/signer-provisioning.md)).
 
 ### Step 2: Channel Master Key → Per-Channel Seed
 

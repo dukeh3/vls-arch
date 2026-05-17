@@ -126,6 +126,8 @@ The signer generates this URI during provisioning. It is delivered to the node o
 4. **Node derives its identity** — `nsec_node = secret`, `npub_node = pubkey(secret)`
 5. **Both connect to relay** — subscribe to their respective event filters
 
+For TEE-based signers, step 1 includes hardware attestation — the signer proves its identity and code measurement before receiving the seed. See [Signer Provisioning](signer-provisioning.md) for the full attestation-based flow.
+
 ---
 
 ## Event Structure
