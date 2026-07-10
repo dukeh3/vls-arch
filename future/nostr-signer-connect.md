@@ -249,11 +249,12 @@ The VLS protocol operations travel as NSC methods. These can be either raw VLS c
 
 | Method | Params | Result |
 |--------|--------|--------|
-| `vls_create_channel` | `peer_id`, `channel_value`, `push_value`, `is_outbound` | `basepoints`, `funding_pubkey`, `per_commitment_point_0` |
+| `vls_create_channel` | `peer_id`, `channel_value`, `push_value`, `is_outbound` | `basepoints`, `funding_pubkey`, `per_commitment_point_0`, `per_commitment_point_1` |
 | `vls_funding_created` | `channel_id`, `is_outbound`, `channel_value`, `push_value`, `funding_txid`, `funding_txout`, `to_self_delay`, `remote_basepoints`, `remote_funding_pubkey`, `remote_to_self_delay`, `channel_type`, `remote_per_commitment_point`, `commitment_number`, `feerate`, `to_local_value_sat`, `to_remote_value_sat`, `htlcs` | `signature` |
-| `vls_funding_signed` | (same as funding_created + `counterparty_signature`, `counterparty_htlc_signatures`) | `signature`, `next_per_commitment_point` |
-| `vls_sign_funding` | `channel_id`, `counterparty_signature`, `counterparty_htlc_signatures`, `utxos`, `psbt` | `next_per_commitment_point`, `signed_psbt` |
-| `vls_channel_ready` | `channel_id`, `funding_txid`, `funding_txout` | `is_buried`, `per_commitment_point_1` |
+| `vls_funding_signed` | (same as funding_created + `counterparty_signature`, `counterparty_htlc_signatures`) | `signature`, `per_commitment_point_2` |
+| `vls_confirm_counterparty_sig` | `channel_id`, `commitment_number`, `feerate`, `to_local_value_sat`, `to_remote_value_sat`, `htlcs`, `counterparty_signature`, `counterparty_htlc_signatures` | `per_commitment_point_2` |
+| `vls_sign_withdrawal` | `utxos`, `psbt` | `signed_psbt` |
+| `vls_channel_ready` | `channel_id`, `funding_txid`, `funding_txout` | `is_buried` |
 
 ### Commitment updates (section 02)
 
@@ -282,7 +283,7 @@ The signer publishes a replaceable info event (kind 13200) advertising its capab
   "tags": [
     ["encryption", "nip44_v2"]
   ],
-  "content": "vls_create_channel vls_funding_created vls_funding_signed vls_sign_funding vls_channel_ready vls_commitment_signed vls_revoke_commitment vls_validate_revocation vls_closing_signed"
+  "content": "vls_create_channel vls_funding_created vls_funding_signed vls_confirm_counterparty_sig vls_sign_withdrawal vls_channel_ready vls_commitment_signed vls_revoke_commitment vls_validate_revocation vls_closing_signed"
 }
 ```
 
